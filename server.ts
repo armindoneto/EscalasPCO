@@ -13,7 +13,14 @@ const PORT = 3000;
 // Initialize Supabase Client
 const supabaseUrl = process.env.SUPABASE_URL || "";
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+let supabase: ReturnType<typeof createClient> | null = null;
+try {
+  if (supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith("http")) {
+    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  }
+} catch (err) {
+  console.error("Falha ao inicializar o cliente Supabase no servidor:", err);
+}
 
 // Increase JSON payload limits for base64 file uploads
 app.use(express.json({ limit: "20mb" }));
@@ -151,7 +158,7 @@ app.post("/api/scales", async (req, res) => {
 
   try {
     const id = `scales-${month}-${year}`;
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from("military_monthly_scales")
       .upsert({
         id,

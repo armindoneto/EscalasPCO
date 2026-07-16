@@ -22,11 +22,6 @@ import {
   Sparkles,
   HelpCircle
 } from "lucide-react";
-
-// Client-side Supabase client initialization (Direct call support for platforms like Vercel)
-const clientSupabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
-const clientSupabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
-const clientSupabase = clientSupabaseUrl && clientSupabaseAnonKey ? createClient(clientSupabaseUrl, clientSupabaseAnonKey) : null;
 import { 
   DEFAULT_SLOTS, 
   generateMockScale, 
@@ -41,6 +36,19 @@ import {
   YearOption,
   CoverageStats
 } from "./types";
+
+// Client-side Supabase client initialization (Direct call support for platforms like Vercel)
+const clientSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const clientSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+let clientSupabase: ReturnType<typeof createClient> | null = null;
+try {
+  if (clientSupabaseUrl && clientSupabaseAnonKey && clientSupabaseUrl.startsWith("http")) {
+    clientSupabase = createClient(clientSupabaseUrl, clientSupabaseAnonKey);
+  }
+} catch (err) {
+  console.error("Falha ao inicializar o cliente Supabase:", err);
+}
+
 
 const MONTHS: MonthOption[] = [
   { value: 0, label: "Janeiro" },
@@ -125,13 +133,13 @@ export default function App() {
           setSupabaseConfigured(true);
           
           // 1. Fetch professionals
-          const { data: mData, error: mError } = await clientSupabase
+          const { data: mData, error: mError } = await (clientSupabase as any)
             .from("military_professionals")
             .select("*");
           if (mError) throw mError;
 
           // 2. Fetch monthly scale
-          const { data: sData, error: sError } = await clientSupabase
+          const { data: sData, error: sError } = await (clientSupabase as any)
             .from("military_monthly_scales")
             .select("*")
             .eq("month", selectedMonth)
@@ -214,7 +222,7 @@ export default function App() {
         // Direct client-side connection save
         // 1. Save professionals
         if (professionals && professionals.length > 0) {
-          const { error: mError } = await clientSupabase
+          const { error: mError } = await (clientSupabase as any)
             .from("military_professionals")
             .upsert(professionals, { onConflict: "id" });
           if (mError) throw mError;
@@ -222,7 +230,7 @@ export default function App() {
 
         // 2. Save monthly scales
         const id = `scales-${selectedMonth}-${selectedYear}`;
-        const { error: sError } = await clientSupabase
+        const { error: sError } = await (clientSupabase as any)
           .from("military_monthly_scales")
           .upsert({
             id,
@@ -601,7 +609,7 @@ export default function App() {
 
       if (clientSupabase) {
         try {
-          await clientSupabase.from("military_professionals").delete().eq("id", id);
+          await (clientSupabase as any).from("military_professionals").delete().eq("id", id);
         } catch (err) {
           console.error("Erro ao deletar militar diretamente do Supabase:", err);
         }
