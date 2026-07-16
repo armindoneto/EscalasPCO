@@ -920,101 +920,8 @@ export default function App() {
               Alterações Pendentes
             </div>
           )}
-
-          <button
-            onClick={handleSaveData}
-            className={`px-4 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer ${
-              isDirty 
-                ? "bg-indigo-600 text-white shadow-md hover:bg-indigo-700 hover:scale-[1.02] active:scale-[0.98]" 
-                : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-            }`}
-            title="Salvar alterações no Supabase ou localmente"
-          >
-            <Download className="w-4 h-4 rotate-180" />
-            Salvar Dados
-          </button>
         </div>
       </header>
-
-      {/* Vercel Environment Configuration Notice */}
-      {isVercelEnvironment && showVercelSetup && (
-        <div className={`no-print mx-8 mt-4 p-5 rounded-lg border shadow-xs ${
-          clientSupabase 
-            ? "bg-emerald-50/80 border-emerald-200 text-slate-800" 
-            : "bg-indigo-50 border-indigo-200 text-slate-800"
-        }`}>
-          <div className="flex items-start gap-3">
-            {clientSupabase ? (
-              <Sparkles className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-            ) : (
-              <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-            )}
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <h3 className={`font-bold text-sm uppercase tracking-wide flex items-center gap-2 ${
-                  clientSupabase ? "text-emerald-900" : "text-indigo-900"
-                }`}>
-                  <span>{clientSupabase ? "Conexão Auto-Corrigida com Sucesso!" : "Configuração de Chaves da Vercel / Supabase"}</span>
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
-                    clientSupabase ? "bg-emerald-200 text-emerald-800" : "bg-indigo-200 text-indigo-800"
-                  }`}>
-                    {clientSupabase ? "RESOLVIDO" : "INSTRUÇÕES"}
-                  </span>
-                </h3>
-                <button 
-                  onClick={() => setShowVercelSetup(false)}
-                  className="text-slate-400 hover:text-slate-600 font-bold text-xs"
-                >
-                  Ocultar aviso
-                </button>
-              </div>
-
-              {clientSupabase ? (
-                <div className="mt-2 text-xs leading-relaxed text-emerald-800">
-                  <p className="font-semibold">
-                    Descobrimos e corrigimos o problema automaticamente em tempo de execução!
-                  </p>
-                  <p className="mt-1">
-                    Como a variável <code className="bg-emerald-100 px-1 rounded font-mono text-[11px] text-emerald-900 font-bold">VITE_SUPABASE_URL</code> estava configurada na Vercel com a chave pública (<code className="font-mono text-[11px]">sb_publishable_...</code>) em vez do endereço web (<code className="font-mono text-[11px]">https://...</code>), implementamos uma lógica de <strong>Auto-Cura (Self-Healing)</strong>. 
-                  </p>
-                  <p className="mt-1 font-semibold">
-                    Agora o aplicativo reconstrói o link real (<code className="font-mono text-[11px]">https://mbfpvjnmbugihvvcsgxq.supabase.co</code>) e extrai a chave pública corretamente, permitindo que a conexão com o Supabase funcione perfeitamente sem você precisar mexer em nada!
-                  </p>
-                </div>
-              ) : (
-                <p className="text-xs text-indigo-700 mt-1 font-medium leading-relaxed">
-                  Para que o aplicativo conecte com o seu banco de dados Supabase na Vercel, as chaves precisam estar cadastradas nas configurações do projeto da Vercel. Como o Vite gera arquivos estáticos compilados, as variáveis precisam estar presentes durante a compilação.
-                </p>
-              )}
-              
-              <div className="mt-3 text-xs text-slate-700 space-y-2">
-                <div className={`p-3 rounded-md font-sans text-xs border ${
-                  clientSupabase ? "bg-emerald-100/50 border-emerald-200" : "bg-indigo-100/70 border-indigo-200"
-                }`}>
-                  <div className="font-bold mb-1">🔍 Diagnóstico do Navegador (Como o app enxerga as chaves):</div>
-                  <ul className="list-disc pl-5 space-y-1 text-[11px] text-slate-700">
-                    <li><strong>VITE_SUPABASE_URL:</strong> {clientSupabaseUrlRaw ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ (Começa com "{cleanClientSupabaseUrl.substring(0, Math.min(25, cleanClientSupabaseUrl.length))}")</span> : <span className="text-rose-600 font-bold">❌ Não encontrada</span>}</li>
-                    <li><strong>VITE_SUPABASE_ANON_KEY:</strong> {clientSupabaseAnonKey ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ ({cleanClientSupabaseAnonKey.length} caracteres)</span> : <span className="text-rose-600 font-bold">❌ Não encontrada</span>}</li>
-                    <li><strong>Status da Conexão Direta:</strong> {clientSupabase ? <span className="text-emerald-700 font-black">Ativa! Conectado diretamente ao Supabase.</span> : <span className="text-amber-700 font-bold">Inativa</span>}</li>
-                  </ul>
-                </div>
-
-                <p className="font-bold text-slate-800 mt-3">Diferença clara entre as chaves do Supabase:</p>
-                <div className="bg-white p-3 rounded border border-slate-200 select-all max-w-xl space-y-2 text-slate-700 text-[11px] leading-relaxed">
-                  <div>
-                    <strong className="text-indigo-600">1. URL do Projeto (VITE_SUPABASE_URL):</strong> É sempre o endereço HTTP do seu projeto. Exemplo:
-                    <div className="bg-slate-50 p-1 px-2 rounded font-mono text-slate-600 border border-slate-100 mt-0.5">https://mbfpvjnmbugihvvcsgxq.supabase.co</div>
-                  </div>
-                  <div>
-                    <strong className="text-indigo-600">2. Chave Pública Anon (VITE_SUPABASE_ANON_KEY):</strong> É o token que começa com <code className="bg-slate-50 px-1 rounded font-mono text-indigo-800 font-bold">sb_publishable_</code>. Exemplo:
-                    <div className="bg-slate-50 p-1 px-2 rounded font-mono text-slate-600 border border-slate-100 mt-0.5">sb_publishable_ERzQK_7Lm7p4zZKoZOILAg_3zc-8ImA</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Database Diagnostic/Setup Alert - Hidden in Print */}
       {dbSyncStatus === 'error' && (
@@ -1365,7 +1272,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
             <div className="bg-white border border-slate-200 rounded shadow-sm flex-1 flex flex-col overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
                 <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
-                  Grade de Consolidado ({activeScale}): <span className="text-indigo-600 italic font-display">{MONTHS[selectedMonth].label} {selectedYear}</span>
+                  ESCALA ({activeScale}): <span className="text-indigo-600 italic font-display">{MONTHS[selectedMonth].label} {selectedYear}</span>
                 </h3>
               </div>
 
@@ -1844,52 +1751,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
             </div>
           )}
 
-          {/* Footer Controls & Stats Summary - Shared at bottom of active tab */}
-          <div className="no-print bg-white border border-slate-200 p-6 rounded flex flex-col md:flex-row justify-between items-center gap-6 shrink-0 shadow-xs">
-            <div className="flex items-center gap-6">
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Total Militares</span>
-                <span className="text-2xl font-black text-slate-800 font-display">{professionals.length}</span>
-              </div>
-              <div className="w-px h-8 bg-slate-200"></div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Graduados</span>
-                <span className="text-2xl font-black text-slate-800 font-display">{professionals.filter(p => p.category === 'GRADUADOS').length}</span>
-              </div>
-              <div className="w-px h-8 bg-slate-200"></div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Soldados</span>
-                <span className="text-2xl font-black text-slate-800 font-display">{professionals.filter(p => p.category === 'SOLDADOS').length}</span>
-              </div>
-              <div className="w-px h-8 bg-slate-200"></div>
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">Postos Carregados</span>
-                <span className="text-2xl font-black text-slate-800 font-display">0{slots.filter(s => s.status === 'success').length}</span>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button 
-                onClick={handleExportCSV}
-                className="px-6 py-2 border border-slate-300 rounded text-xs font-bold hover:bg-slate-50 text-slate-600 uppercase tracking-wider transition-colors cursor-pointer"
-              >
-                Exportar XLS (CSV)
-              </button>
-              <button 
-                onClick={() => setActiveTab("report")}
-                className="px-6 py-2 border border-slate-300 rounded text-xs font-bold hover:bg-slate-50 text-slate-600 uppercase tracking-wider transition-colors cursor-pointer"
-              >
-                Visualizar PDF
-              </button>
-              <button 
-                onClick={() => {
-                  triggerNotification("success", "Escala de serviço consolidada com sucesso e pronta para homologação oficial!");
-                }}
-                className="px-8 py-2 bg-indigo-900 hover:bg-black text-white rounded text-xs font-bold uppercase tracking-wider shadow-md hover:shadow-lg transition-all cursor-pointer"
-              >
-                Finalizar Consolidação
-              </button>
-            </div>
-          </div>
+          {/* Footer Controls & Stats Summary removed per user request */}
 
         </div>
       </main>
