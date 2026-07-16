@@ -243,13 +243,82 @@ export default function App() {
     loadData();
   }, [selectedMonth, selectedYear]);
 
-  // Real-time autosave to localStorage as a robust local backup
+  // Real-time autosave to LocalStorage and debounced save to Supabase
   React.useEffect(() => {
-    if (initialLoadDone) {
-      localStorage.setItem("military_professionals", JSON.stringify(professionals));
-      localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(cellState));
-    }
-  }, [professionals, cellState, selectedMonth, selectedYear, initialLoadDone]);
+    if (!initialLoadDone) return;
+
+    // LocalStorage save is immediate so local data is always up-to-date
+    localStorage.setItem("military_professionals", JSON.stringify(professionals));
+    localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(cellState));
+
+    // Only sync to Supabase if there are dirty (unsaved) changes
+    if (!isDirty) return;
+
+    setDbSyncStatus('loading');
+
+    const handler = setTimeout(async () => {
+      try {
+        if (clientSupabase) {
+          // 1. Save professionals
+          if (professionals && professionals.length > 0) {
+            const { error: mError } = await (clientSupabase as any)
+              .from("military_professionals")
+              .upsert(professionals, { onConflict: "id" });
+            if (mError) throw mError;
+          }
+
+          // 2. Save monthly scales
+          const id = `scales-${selectedMonth}-${selectedYear}`;
+          const { error: sError } = await (clientSupabase as any)
+            .from("military_monthly_scales")
+            .upsert({
+              id,
+              month: selectedMonth,
+              year: selectedYear,
+              cell_state: cellState
+            }, { onConflict: "id" });
+          if (sError) throw sError;
+
+          setDbSyncStatus('synced');
+          setIsDirty(false);
+        } else if (supabaseConfigured) {
+          // Save via server-side API proxy
+          // 1. Save professionals
+          const mRes = await fetch("/api/military", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ professionals }),
+          });
+          
+          // 2. Save monthly scales
+          const sRes = await fetch("/api/scales", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              month: selectedMonth,
+              year: selectedYear,
+              cellState
+            }),
+          });
+
+          if (mRes.ok && sRes.ok) {
+            setDbSyncStatus('synced');
+            setIsDirty(false);
+          } else {
+            throw new Error("Erro de resposta do servidor no autosave.");
+          }
+        } else {
+          setDbSyncStatus('local');
+          setIsDirty(false);
+        }
+      } catch (err: any) {
+        console.error("Erro no autosave do Supabase:", err);
+        setDbSyncStatus('error');
+      }
+    }, 1500); // 1.5 seconds debounce
+
+    return () => clearTimeout(handler);
+  }, [professionals, cellState, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
 
   // Save current data state to Supabase or LocalStorage
   const handleSaveData = async () => {
