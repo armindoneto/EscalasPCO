@@ -1,0 +1,8 @@
+{
+  "name": "Consolidador de Escalas de Serviço",
+  "description": "Aplicativo desktop para upload, extração inteligente e consolidação de até 9 escalas de serviço em formato PDF usando a Inteligência Artificial Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
