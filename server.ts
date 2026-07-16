@@ -11,12 +11,23 @@ const app = express();
 const PORT = 3000;
 
 // Initialize Supabase Client
-const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseUrlRaw = process.env.SUPABASE_URL || "";
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
 let supabase: ReturnType<typeof createClient> | null = null;
+
+let cleanSupabaseUrl = supabaseUrlRaw.trim();
+if (cleanSupabaseUrl.endsWith("/rest/v1/")) {
+  cleanSupabaseUrl = cleanSupabaseUrl.slice(0, -9);
+} else if (cleanSupabaseUrl.endsWith("/rest/v1")) {
+  cleanSupabaseUrl = cleanSupabaseUrl.slice(0, -8);
+}
+if (cleanSupabaseUrl.endsWith("/")) {
+  cleanSupabaseUrl = cleanSupabaseUrl.slice(0, -1);
+}
+
 try {
-  if (supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith("http")) {
-    supabase = createClient(supabaseUrl, supabaseAnonKey);
+  if (cleanSupabaseUrl && supabaseAnonKey && cleanSupabaseUrl.startsWith("http")) {
+    supabase = createClient(cleanSupabaseUrl, supabaseAnonKey);
   }
 } catch (err) {
   console.error("Falha ao inicializar o cliente Supabase no servidor:", err);
@@ -55,8 +66,88 @@ app.get("/api/health", (req, res) => {
 app.get("/api/supabase-status", (req, res) => {
   res.json({
     configured: !!supabase,
-    url: supabaseUrl ? supabaseUrl.replace(/(https?:\/\/)[^.]+(\..+)/, "$1***$2") : ""
+    url: supabaseUrlRaw ? supabaseUrlRaw.replace(/(https?:\/\/)[^.]+(\..+)/, "$1***$2") : ""
   });
+});
+
+// Database diagnostics route
+app.get("/api/db-diagnose", async (req, res) => {
+  if (!supabase) {
+    res.json({ success: false, message: "Supabase não está configurado no servidor (variáveis de ambiente ausentes)." });
+    return;
+  }
+
+  const diagnostics: any = {
+    supabase_connected: true,
+    tables: {}
+  };
+
+  try {
+    // 1. Diagnose military_professionals
+    const { data: mData, error: mError } = await supabase.from("military_professionals").select("*").limit(1);
+    diagnostics.tables.military_professionals = {
+      accessible: !mError,
+      error: mError ? { message: mError.message, code: mError.code, details: mError.details } : null,
+      sample_record: mData && mData.length > 0 ? mData[0] : null,
+      columns: mData && mData.length > 0 ? Object.keys(mData[0]) : []
+    };
+
+    // Try a test insert with text ID to see if it fails due to type mismatch or missing columns
+    const testId = `diag-test-${Date.now()}`;
+    const { error: mInsertError } = await (supabase as any).from("military_professionals").insert({
+      id: testId,
+      name: "Teste Diagnostico",
+      role: "Geral",
+      category: "GRADUADOS"
+    });
+
+    diagnostics.tables.military_professionals.test_insert_text_id = {
+      success: !mInsertError,
+      error: mInsertError ? { message: mInsertError.message, code: mInsertError.code, details: mInsertError.details } : null
+    };
+
+    // Clean up test insert if successful
+    if (!mInsertError) {
+      await (supabase as any).from("military_professionals").delete().eq("id", testId);
+    }
+
+  } catch (err: any) {
+    diagnostics.military_error = err.message;
+  }
+
+  try {
+    // 2. Diagnose military_monthly_scales
+    const { data: sData, error: sError } = await supabase.from("military_monthly_scales").select("*").limit(1);
+    diagnostics.tables.military_monthly_scales = {
+      accessible: !sError,
+      error: sError ? { message: sError.message, code: sError.code, details: sError.details } : null,
+      sample_record: sData && sData.length > 0 ? sData[0] : null,
+      columns: sData && sData.length > 0 ? Object.keys(sData[0]) : []
+    };
+
+    // Test insert with custom ID and simple JSON
+    const testScaleId = `scales-diag-test`;
+    const { error: sInsertError } = await (supabase as any).from("military_monthly_scales").insert({
+      id: testScaleId,
+      month: 6,
+      year: 2026,
+      cell_state: {}
+    });
+
+    diagnostics.tables.military_monthly_scales.test_insert_text_id = {
+      success: !sInsertError,
+      error: sInsertError ? { message: sInsertError.message, code: sInsertError.code, details: sInsertError.details } : null
+    };
+
+    // Clean up test insert if successful
+    if (!sInsertError) {
+      await (supabase as any).from("military_monthly_scales").delete().eq("id", testScaleId);
+    }
+  } catch (err: any) {
+    diagnostics.scales_error = err.message;
+  }
+
+  res.json(diagnostics);
 });
 
 // GET military list

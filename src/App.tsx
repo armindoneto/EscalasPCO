@@ -38,12 +38,23 @@ import {
 } from "./types";
 
 // Client-side Supabase client initialization (Direct call support for platforms like Vercel)
-const clientSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const clientSupabaseUrlRaw = import.meta.env.VITE_SUPABASE_URL || "";
 const clientSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 let clientSupabase: ReturnType<typeof createClient> | null = null;
+
+let cleanClientSupabaseUrl = clientSupabaseUrlRaw.trim();
+if (cleanClientSupabaseUrl.endsWith("/rest/v1/")) {
+  cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(0, -9);
+} else if (cleanClientSupabaseUrl.endsWith("/rest/v1")) {
+  cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(0, -8);
+}
+if (cleanClientSupabaseUrl.endsWith("/")) {
+  cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(0, -1);
+}
+
 try {
-  if (clientSupabaseUrl && clientSupabaseAnonKey && clientSupabaseUrl.startsWith("http")) {
-    clientSupabase = createClient(clientSupabaseUrl, clientSupabaseAnonKey);
+  if (cleanClientSupabaseUrl && clientSupabaseAnonKey && cleanClientSupabaseUrl.startsWith("http")) {
+    clientSupabase = createClient(cleanClientSupabaseUrl, clientSupabaseAnonKey);
   }
 } catch (err) {
   console.error("Falha ao inicializar o cliente Supabase:", err);
@@ -96,6 +107,8 @@ export default function App() {
   const [supabaseConfigured, setSupabaseConfigured] = useState<boolean>(false);
   const [dbSyncStatus, setDbSyncStatus] = useState<'loading' | 'synced' | 'local' | 'error'>('loading');
   const [isDirty, setIsDirty] = useState<boolean>(false);
+  const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
+  const [showSqlSetup, setShowSqlSetup] = useState<boolean>(false);
 
   // Slots state (up to 9 slots for the 9 PDFs)
   const [slots, setSlots] = useState<UploadSlot[]>(() => {
@@ -165,14 +178,28 @@ export default function App() {
           if (statusData.configured) {
             // 1. Fetch professionals
             const mRes = await fetch("/api/military");
+            if (!mRes.ok) {
+              const errData = await mRes.json().catch(() => ({}));
+              throw new Error(errData.message || `Erro no servidor (${mRes.status}) ao carregar militares.`);
+            }
             const mData = await mRes.json();
-            let loadedProfs = mData.success ? mData.data : [];
+            if (!mData.success) {
+              throw new Error(mData.message || "Falha do Supabase ao retornar militares.");
+            }
+            let loadedProfs = mData.data || [];
 
             // 2. Fetch scales
             const sRes = await fetch(`/api/scales?month=${selectedMonth}&year=${selectedYear}`);
+            if (!sRes.ok) {
+              const errData = await sRes.json().catch(() => ({}));
+              throw new Error(errData.message || `Erro no servidor (${sRes.status}) ao carregar escalas.`);
+            }
             const sData = await sRes.json();
+            if (!sData.success) {
+              throw new Error(sData.message || "Falha do Supabase ao retornar escalas.");
+            }
             let loadedCells = {};
-            if (sData.success && sData.data) {
+            if (sData.data) {
               loadedCells = sData.data.cell_state || {};
             }
 
@@ -209,15 +236,29 @@ export default function App() {
         else setCellState({});
         
         triggerNotification("error", "Não foi possível conectar ao Supabase (verifique suas tabelas no painel). Operando com dados locais.");
+      } finally {
+        setInitialLoadDone(true);
       }
     }
     loadData();
   }, [selectedMonth, selectedYear]);
 
+  // Real-time autosave to localStorage as a robust local backup
+  React.useEffect(() => {
+    if (initialLoadDone) {
+      localStorage.setItem("military_professionals", JSON.stringify(professionals));
+      localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(cellState));
+    }
+  }, [professionals, cellState, selectedMonth, selectedYear, initialLoadDone]);
+
   // Save current data state to Supabase or LocalStorage
   const handleSaveData = async () => {
     setDbSyncStatus('loading');
     try {
+      // Always save a local copy immediately first to prevent ANY data loss
+      localStorage.setItem("military_professionals", JSON.stringify(professionals));
+      localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(cellState));
+
       if (clientSupabase) {
         // Direct client-side connection save
         // 1. Save professionals
@@ -268,12 +309,18 @@ export default function App() {
           setIsDirty(false);
           triggerNotification("success", "Dados salvos e sincronizados com o Supabase via servidor!");
         } else {
-          throw new Error("Erro na resposta do servidor.");
+          let errorMsg = "Erro na resposta do servidor.";
+          try {
+            const mData = !mRes.ok ? await mRes.json() : null;
+            const sData = !sRes.ok ? await sRes.json() : null;
+            errorMsg = mData?.message || sData?.message || errorMsg;
+          } catch (e) {
+            console.error("Erro ao ler JSON de erro do servidor:", e);
+          }
+          throw new Error(errorMsg);
         }
       } else {
-        // Save to LocalStorage
-        localStorage.setItem("military_professionals", JSON.stringify(professionals));
-        localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(cellState));
+        // No Supabase configured, already saved to LocalStorage above
         setDbSyncStatus('local');
         setIsDirty(false);
         triggerNotification("success", "Dados salvos localmente! Configure as credenciais do Supabase para nuvem.");
@@ -281,7 +328,7 @@ export default function App() {
     } catch (err: any) {
       console.error("Erro ao salvar dados no Supabase:", err);
       setDbSyncStatus('error');
-      triggerNotification("error", "Erro ao salvar os dados: " + err.message);
+      triggerNotification("error", "Erro ao salvar no Supabase. Para segurança, salvamos uma cópia localmente no seu navegador! Detalhe: " + err.message);
     }
   };
 
@@ -723,16 +770,20 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           {/* Supabase connection badge */}
-          <div className={`px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 ${
-            dbSyncStatus === 'synced' ? "bg-emerald-50 text-emerald-800 border border-emerald-200" :
-            dbSyncStatus === 'loading' ? "bg-amber-50 text-amber-800 border border-amber-200 animate-pulse" :
-            dbSyncStatus === 'error' ? "bg-rose-50 text-rose-800 border border-rose-200" :
-            "bg-slate-50 text-slate-600 border border-slate-200"
-          }`}>
+          <div 
+            onClick={() => dbSyncStatus === 'error' && setShowSqlSetup(!showSqlSetup)}
+            className={`px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
+              dbSyncStatus === 'synced' ? "bg-emerald-50 text-emerald-800 border border-emerald-200" :
+              dbSyncStatus === 'loading' ? "bg-amber-50 text-amber-800 border border-amber-200 animate-pulse" :
+              dbSyncStatus === 'error' ? "bg-rose-50 text-rose-800 border border-rose-200 cursor-pointer hover:bg-rose-100 hover:scale-[1.02]" :
+              "bg-slate-50 text-slate-600 border border-slate-200"
+            }`}
+            title={dbSyncStatus === 'error' ? "Clique para ver instruções de correção" : undefined}
+          >
             <span className={`w-2 h-2 rounded-full ${
               dbSyncStatus === 'synced' ? "bg-emerald-500" :
               dbSyncStatus === 'loading' ? "bg-amber-500" :
-              dbSyncStatus === 'error' ? "bg-rose-500" :
+              dbSyncStatus === 'error' ? "bg-rose-500 animate-pulse" :
               "bg-slate-400"
             }`} />
             {dbSyncStatus === 'synced' && "Supabase: Sincronizado"}
@@ -761,6 +812,109 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Database Diagnostic/Setup Alert - Hidden in Print */}
+      {dbSyncStatus === 'error' && (
+        <div className="no-print mx-8 mt-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-slate-800">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-bold text-rose-800 text-sm uppercase tracking-wide">
+                Erro de Sincronização com o Supabase Detectado
+              </h3>
+              <p className="text-xs text-rose-700 mt-1 font-medium">
+                Suas chaves do Supabase estão configuradas, mas as tabelas necessárias não foram encontradas no banco de dados. 
+                <strong> Não se preocupe! Seus dados foram salvos automaticamente no seu navegador</strong> e você não perdeu seu trabalho.
+              </p>
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={() => setShowSqlSetup(!showSqlSetup)}
+                  className="bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {showSqlSetup ? "Ocultar Instruções" : "Como corrigir em 1 clique (Instruções SQL)"}
+                </button>
+                <button
+                  onClick={() => {
+                    // Force state load from localStorage to recover work immediately
+                    const localProfs = localStorage.getItem("military_professionals");
+                    const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
+                    if (localProfs) setProfessionals(JSON.parse(localProfs));
+                    if (localCells) setCellState(JSON.parse(localCells));
+                    triggerNotification("success", "Dados carregados do backup local com sucesso!");
+                  }}
+                  className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded transition-colors cursor-pointer"
+                >
+                  Forçar Carregamento do Backup Local
+                </button>
+              </div>
+
+              {showSqlSetup && (
+                <div className="mt-4 bg-slate-900 text-slate-100 p-4 rounded-md border border-slate-700 font-mono text-xs select-all overflow-x-auto">
+                  <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-2 select-none border-b border-slate-800 pb-2">
+                    <span>Script SQL para o Supabase (SQL Editor)</span>
+                    <button
+                      onClick={() => {
+                        const sqlText = `CREATE TABLE IF NOT EXISTS public.military_professionals (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    category TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.military_professionals DISABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS public.military_monthly_scales (
+    id TEXT PRIMARY KEY,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    cell_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`;
+                        navigator.clipboard.writeText(sqlText);
+                        triggerNotification("success", "Script SQL copiado com sucesso!");
+                      }}
+                      className="text-indigo-400 hover:text-indigo-300 cursor-pointer"
+                    >
+                      Copiar Código
+                    </button>
+                  </div>
+                  <pre className="text-[11px] leading-relaxed select-text text-slate-300">
+{`-- 1. Criar tabela de profissionais militares
+CREATE TABLE IF NOT EXISTS public.military_professionals (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    category TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.military_professionals DISABLE ROW LEVEL SECURITY;
+
+-- 2. Criar tabela de escalas de serviço mensais
+CREATE TABLE IF NOT EXISTS public.military_monthly_scales (
+    id TEXT PRIMARY KEY,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    cell_state JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
+                  </pre>
+                  <p className="mt-3 text-[11px] text-slate-400 select-none border-t border-slate-800 pt-2 font-sans">
+                    <strong>Passo a passo para corrigir:</strong><br />
+                    1. Abra o painel do seu projeto no <strong>Supabase</strong>.<br />
+                    2. No menu lateral esquerdo, clique em <strong>SQL Editor</strong>.<br />
+                    3. Clique em <strong>New Query</strong>.<br />
+                    4. Cole o código acima e clique em <strong>Run</strong> (no canto inferior direito).<br />
+                    5. Volte para este aplicativo e recarregue a página. Tudo estará sincronizado!
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reference & Parameter Controls Toolbar - Hidden in Print */}
       <div className="no-print bg-slate-100/50 border-b border-slate-200 px-8 py-3 flex flex-wrap items-center justify-between gap-4">
