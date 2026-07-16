@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { 
   FileSpreadsheet, 
   UploadCloud, 
@@ -21,6 +22,11 @@ import {
   Sparkles,
   HelpCircle
 } from "lucide-react";
+
+// Client-side Supabase client initialization (Direct call support for platforms like Vercel)
+const clientSupabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
+const clientSupabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
+const clientSupabase = clientSupabaseUrl && clientSupabaseAnonKey ? createClient(clientSupabaseUrl, clientSupabaseAnonKey) : null;
 import { 
   DEFAULT_SLOTS, 
   generateMockScale, 
@@ -114,46 +120,87 @@ export default function App() {
     async function loadData() {
       setDbSyncStatus('loading');
       try {
-        // Check Supabase connection status
-        const statusRes = await fetch("/api/supabase-status");
-        const statusData = await statusRes.json();
-        setSupabaseConfigured(statusData.configured);
-
-        if (statusData.configured) {
+        if (clientSupabase) {
+          // Direct client-side connection (perfect for Vercel SPA)
+          setSupabaseConfigured(true);
+          
           // 1. Fetch professionals
-          const mRes = await fetch("/api/military");
-          const mData = await mRes.json();
-          let loadedProfs = mData.success ? mData.data : [];
+          const { data: mData, error: mError } = await clientSupabase
+            .from("military_professionals")
+            .select("*");
+          if (mError) throw mError;
 
-          // 2. Fetch scales
-          const sRes = await fetch(`/api/scales?month=${selectedMonth}&year=${selectedYear}`);
-          const sData = await sRes.json();
-          let loadedCells = {};
-          if (sData.success && sData.data) {
-            loadedCells = sData.data.cell_state || {};
-          }
+          // 2. Fetch monthly scale
+          const { data: sData, error: sError } = await clientSupabase
+            .from("military_monthly_scales")
+            .select("*")
+            .eq("month", selectedMonth)
+            .eq("year", selectedYear)
+            .maybeSingle();
+          if (sError) throw sError;
 
-          setProfessionals(loadedProfs);
-          setCellState(loadedCells);
+          setProfessionals(mData || []);
+          setCellState(sData?.cell_state || {});
           setDbSyncStatus('synced');
         } else {
-          // Fallback to local storage
-          const localProfs = localStorage.getItem("military_professionals");
-          const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
+          // Check Supabase connection status via server-side proxy
+          let statusData = { configured: false };
+          try {
+            const statusRes = await fetch("/api/supabase-status");
+            statusData = await statusRes.json();
+          } catch (e) {
+            console.warn("Backend proxy API offline, relying on local storage fallback.");
+          }
+          
+          setSupabaseConfigured(statusData.configured);
 
-          if (localProfs) setProfessionals(JSON.parse(localProfs));
-          else setProfessionals([]);
+          if (statusData.configured) {
+            // 1. Fetch professionals
+            const mRes = await fetch("/api/military");
+            const mData = await mRes.json();
+            let loadedProfs = mData.success ? mData.data : [];
 
-          if (localCells) setCellState(JSON.parse(localCells));
-          else setCellState({});
+            // 2. Fetch scales
+            const sRes = await fetch(`/api/scales?month=${selectedMonth}&year=${selectedYear}`);
+            const sData = await sRes.json();
+            let loadedCells = {};
+            if (sData.success && sData.data) {
+              loadedCells = sData.data.cell_state || {};
+            }
 
-          setDbSyncStatus('local');
+            setProfessionals(loadedProfs);
+            setCellState(loadedCells);
+            setDbSyncStatus('synced');
+          } else {
+            // Fallback to local storage
+            const localProfs = localStorage.getItem("military_professionals");
+            const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
+
+            if (localProfs) setProfessionals(JSON.parse(localProfs));
+            else setProfessionals([]);
+
+            if (localCells) setCellState(JSON.parse(localCells));
+            else setCellState({});
+
+            setDbSyncStatus('local');
+          }
         }
         setIsDirty(false);
       } catch (err) {
-        console.error("Erro ao carregar dados:", err);
+        console.error("Erro ao carregar dados do Supabase:", err);
         setDbSyncStatus('error');
-        triggerNotification("error", "Não foi possível carregar dados do Supabase. Operando localmente.");
+        
+        // Fallback safely to local storage on error to keep the app working
+        const localProfs = localStorage.getItem("military_professionals");
+        const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
+
+        if (localProfs) setProfessionals(JSON.parse(localProfs));
+        else setProfessionals([]);
+
+        if (localCells) setCellState(JSON.parse(localCells));
+        else setCellState({});
+        
+        triggerNotification("error", "Não foi possível conectar ao Supabase (verifique suas tabelas no painel). Operando com dados locais.");
       }
     }
     loadData();
@@ -163,8 +210,33 @@ export default function App() {
   const handleSaveData = async () => {
     setDbSyncStatus('loading');
     try {
-      if (supabaseConfigured) {
-        // Save to Supabase
+      if (clientSupabase) {
+        // Direct client-side connection save
+        // 1. Save professionals
+        if (professionals && professionals.length > 0) {
+          const { error: mError } = await clientSupabase
+            .from("military_professionals")
+            .upsert(professionals, { onConflict: "id" });
+          if (mError) throw mError;
+        }
+
+        // 2. Save monthly scales
+        const id = `scales-${selectedMonth}-${selectedYear}`;
+        const { error: sError } = await clientSupabase
+          .from("military_monthly_scales")
+          .upsert({
+            id,
+            month: selectedMonth,
+            year: selectedYear,
+            cell_state: cellState
+          }, { onConflict: "id" });
+        if (sError) throw sError;
+
+        setDbSyncStatus('synced');
+        setIsDirty(false);
+        triggerNotification("success", "Dados salvos e sincronizados diretamente com o Supabase!");
+      } else if (supabaseConfigured) {
+        // Save via server-side proxy
         // 1. Save professionals
         const mRes = await fetch("/api/military", {
           method: "POST",
@@ -186,7 +258,7 @@ export default function App() {
         if (mRes.ok && sRes.ok) {
           setDbSyncStatus('synced');
           setIsDirty(false);
-          triggerNotification("success", "Dados salvos e sincronizados com o Supabase!");
+          triggerNotification("success", "Dados salvos e sincronizados com o Supabase via servidor!");
         } else {
           throw new Error("Erro na resposta do servidor.");
         }
@@ -199,7 +271,7 @@ export default function App() {
         triggerNotification("success", "Dados salvos localmente! Configure as credenciais do Supabase para nuvem.");
       }
     } catch (err: any) {
-      console.error("Erro ao salvar dados:", err);
+      console.error("Erro ao salvar dados no Supabase:", err);
       setDbSyncStatus('error');
       triggerNotification("error", "Erro ao salvar os dados: " + err.message);
     }
@@ -527,7 +599,13 @@ export default function App() {
       });
       setIsDirty(true);
 
-      if (supabaseConfigured) {
+      if (clientSupabase) {
+        try {
+          await clientSupabase.from("military_professionals").delete().eq("id", id);
+        } catch (err) {
+          console.error("Erro ao deletar militar diretamente do Supabase:", err);
+        }
+      } else if (supabaseConfigured) {
         try {
           await fetch(`/api/military/${id}`, { method: "DELETE" });
         } catch (err) {
