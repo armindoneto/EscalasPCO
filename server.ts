@@ -16,6 +16,12 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
 let supabase: ReturnType<typeof createClient> | null = null;
 
 let cleanSupabaseUrl = supabaseUrlRaw.trim();
+if (cleanSupabaseUrl.startsWith('"') && cleanSupabaseUrl.endsWith('"')) {
+  cleanSupabaseUrl = cleanSupabaseUrl.slice(1, -1).trim();
+} else if (cleanSupabaseUrl.startsWith("'") && cleanSupabaseUrl.endsWith("'")) {
+  cleanSupabaseUrl = cleanSupabaseUrl.slice(1, -1).trim();
+}
+
 if (cleanSupabaseUrl.endsWith("/rest/v1/")) {
   cleanSupabaseUrl = cleanSupabaseUrl.slice(0, -9);
 } else if (cleanSupabaseUrl.endsWith("/rest/v1")) {
@@ -25,9 +31,16 @@ if (cleanSupabaseUrl.endsWith("/")) {
   cleanSupabaseUrl = cleanSupabaseUrl.slice(0, -1);
 }
 
+let cleanSupabaseAnonKey = supabaseAnonKey.trim();
+if (cleanSupabaseAnonKey.startsWith('"') && cleanSupabaseAnonKey.endsWith('"')) {
+  cleanSupabaseAnonKey = cleanSupabaseAnonKey.slice(1, -1).trim();
+} else if (cleanSupabaseAnonKey.startsWith("'") && cleanSupabaseAnonKey.endsWith("'")) {
+  cleanSupabaseAnonKey = cleanSupabaseAnonKey.slice(1, -1).trim();
+}
+
 try {
-  if (cleanSupabaseUrl && supabaseAnonKey && cleanSupabaseUrl.startsWith("http")) {
-    supabase = createClient(cleanSupabaseUrl, supabaseAnonKey);
+  if (cleanSupabaseUrl && cleanSupabaseAnonKey && cleanSupabaseUrl.startsWith("http")) {
+    supabase = createClient(cleanSupabaseUrl, cleanSupabaseAnonKey);
   }
 } catch (err) {
   console.error("Falha ao inicializar o cliente Supabase no servidor:", err);

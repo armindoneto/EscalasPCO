@@ -43,6 +43,12 @@ const clientSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 let clientSupabase: ReturnType<typeof createClient> | null = null;
 
 let cleanClientSupabaseUrl = clientSupabaseUrlRaw.trim();
+if (cleanClientSupabaseUrl.startsWith('"') && cleanClientSupabaseUrl.endsWith('"')) {
+  cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(1, -1).trim();
+} else if (cleanClientSupabaseUrl.startsWith("'") && cleanClientSupabaseUrl.endsWith("'")) {
+  cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(1, -1).trim();
+}
+
 if (cleanClientSupabaseUrl.endsWith("/rest/v1/")) {
   cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(0, -9);
 } else if (cleanClientSupabaseUrl.endsWith("/rest/v1")) {
@@ -52,12 +58,26 @@ if (cleanClientSupabaseUrl.endsWith("/")) {
   cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(0, -1);
 }
 
+let cleanClientSupabaseAnonKey = clientSupabaseAnonKey.trim();
+if (cleanClientSupabaseAnonKey.startsWith('"') && cleanClientSupabaseAnonKey.endsWith('"')) {
+  cleanClientSupabaseAnonKey = cleanClientSupabaseAnonKey.slice(1, -1).trim();
+} else if (cleanClientSupabaseAnonKey.startsWith("'") && cleanClientSupabaseAnonKey.endsWith("'")) {
+  cleanClientSupabaseAnonKey = cleanClientSupabaseAnonKey.slice(1, -1).trim();
+}
+
+console.log("[Supabase Diagnostic Raw] VITE_SUPABASE_URL length:", clientSupabaseUrlRaw.length);
+console.log("[Supabase Diagnostic Raw] VITE_SUPABASE_ANON_KEY length:", clientSupabaseAnonKey.length);
+console.log("[Supabase Diagnostic Cleaned] URL:", cleanClientSupabaseUrl || "(empty)");
+
 try {
-  if (cleanClientSupabaseUrl && clientSupabaseAnonKey && cleanClientSupabaseUrl.startsWith("http")) {
-    clientSupabase = createClient(cleanClientSupabaseUrl, clientSupabaseAnonKey);
+  if (cleanClientSupabaseUrl && cleanClientSupabaseAnonKey && cleanClientSupabaseUrl.startsWith("http")) {
+    clientSupabase = createClient(cleanClientSupabaseUrl, cleanClientSupabaseAnonKey);
+    console.log("[Supabase Diagnostic] Client initialized successfully.");
+  } else {
+    console.warn("[Supabase Diagnostic] Keys missing or invalid for direct connection. URL:", cleanClientSupabaseUrl, "Key length:", cleanClientSupabaseAnonKey.length);
   }
 } catch (err) {
-  console.error("Falha ao inicializar o cliente Supabase:", err);
+  console.error("[Supabase Diagnostic] Failed to initialize client:", err);
 }
 
 
@@ -109,6 +129,14 @@ export default function App() {
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
   const [showSqlSetup, setShowSqlSetup] = useState<boolean>(false);
+  const [showVercelSetup, setShowVercelSetup] = useState<boolean>(true);
+
+  // Detect if the app is running in a production or Vercel environment where direct connection is needed
+  const isVercelEnvironment = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    return window.location.hostname.includes("vercel.app") || 
+      (!clientSupabase && !supabaseConfigured && window.location.hostname !== "localhost" && !window.location.hostname.includes(".run.app"));
+  }, [supabaseConfigured]);
 
   // Slots state (up to 9 slots for the 9 PDFs)
   const [slots, setSlots] = useState<UploadSlot[]>(() => {
@@ -881,6 +909,60 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Vercel Environment Configuration Notice */}
+      {isVercelEnvironment && !clientSupabase && showVercelSetup && (
+        <div className="no-print mx-8 mt-4 p-5 bg-indigo-50 border border-indigo-200 rounded-lg text-slate-800 shadow-xs">
+          <div className="flex items-start gap-3">
+            <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-indigo-900 text-sm uppercase tracking-wide flex items-center gap-2">
+                  <span>Configuração de Conexão Necessária para a Vercel</span>
+                  <span className="bg-indigo-200 text-indigo-800 text-[9px] px-1.5 py-0.5 rounded font-black">IMPORTANTE</span>
+                </h3>
+                <button 
+                  onClick={() => setShowVercelSetup(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-xs"
+                >
+                  Ocultar aviso
+                </button>
+              </div>
+              <p className="text-xs text-indigo-700 mt-1 font-medium leading-relaxed">
+                Para que o aplicativo conecte com o seu banco de dados Supabase na Vercel, as chaves precisam ser cadastradas nas configurações do projeto da Vercel. Como o Vite gera arquivos estáticos compilados, <strong>as variáveis de ambiente precisam estar presentes durante a compilação (Build) do projeto</strong>.
+              </p>
+              
+              <div className="mt-3 text-xs text-slate-700 space-y-2">
+                <div className="p-3 bg-indigo-100/70 border border-indigo-200 rounded-md font-sans text-xs">
+                  <div className="font-bold text-indigo-900 mb-1">🔍 Diagnóstico do Navegador (O que o seu app está vendo agora):</div>
+                  <ul className="list-disc pl-5 space-y-1 text-[11px] text-slate-700">
+                    <li><strong>VITE_SUPABASE_URL:</strong> {clientSupabaseUrlRaw ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ (Começa com "{cleanClientSupabaseUrl.substring(0, Math.min(25, cleanClientSupabaseUrl.length))}")</span> : <span className="text-rose-600 font-bold">❌ Não encontrada / Em branco</span>}</li>
+                    <li><strong>VITE_SUPABASE_ANON_KEY:</strong> {clientSupabaseAnonKey ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ ({cleanClientSupabaseAnonKey.length} caracteres)</span> : <span className="text-rose-600 font-bold">❌ Não encontrada / Em branco</span>}</li>
+                    <li><strong>Status da Conexão Direta:</strong> {clientSupabase ? <span className="text-emerald-700 font-bold">Ativa! Conectado diretamente ao Supabase.</span> : <span className="text-amber-700 font-bold">Inativa (Conexão direta não pôde ser estabelecida).</span>}</li>
+                  </ul>
+                </div>
+
+                <p className="font-semibold text-indigo-900 mt-3">Siga estes 4 passos simples:</p>
+                <ol className="list-decimal pl-5 space-y-1.5 text-slate-600 font-medium">
+                  <li>Acesse o painel do seu projeto na <strong>Vercel</strong>.</li>
+                  <li>Vá na aba <strong>Settings</strong> (Configurações) &gt; <strong>Environment Variables</strong> (Variáveis de Ambiente).</li>
+                  <li>Adicione exatamente estas duas variáveis com os seus dados correspondentes do Supabase:
+                    <div className="mt-2 font-mono text-[11px] bg-white p-3 rounded border border-slate-200 select-all max-w-xl space-y-1 text-slate-800 shadow-2xs">
+                      <div><strong className="text-indigo-600">VITE_SUPABASE_URL</strong> = <span className="text-slate-500">https://xxxx.supabase.co</span></div>
+                      <div><strong className="text-indigo-600">VITE_SUPABASE_ANON_KEY</strong> = <span className="text-slate-500">sua_chave_anonima_publica_aqui</span></div>
+                    </div>
+                  </li>
+                  <li>
+                    <span className="text-rose-600 font-bold">⚠️ PASSO CRUCIAL PARA ENTRAR EM VIGOR:</span> Após cadastrar e salvar as duas variáveis na Vercel, <strong>você deve gerar um novo Deploy (Redeploy)</strong> para que o Vite compile as chaves! 
+                    <br />
+                    <span className="text-slate-500 font-normal">Para isso, na aba <strong>Deployments</strong> do projeto no painel da Vercel, clique nos três pontinhos à direita do último deploy e selecione a opção <strong>Redeploy</strong> (com a opção "Use existing Build Cache" desmarcada para forçar uma compilação nova).</span>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Database Diagnostic/Setup Alert - Hidden in Print */}
       {dbSyncStatus === 'error' && (
