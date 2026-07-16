@@ -31,14 +31,28 @@ if (sRawKey.startsWith('"') && sRawKey.endsWith('"')) {
   sRawKey = sRawKey.slice(1, -1).trim();
 }
 
-// Self-healing: Check if URL and Anon Key are swapped (SUPABASE_URL contains key prefix instead of http)
+// Self-healing: Check if URL is actually a key
 let cleanSupabaseUrl = sRawUrl;
 let cleanSupabaseAnonKey = sRawKey;
 
-if (!sRawUrl.startsWith("http") && sRawKey.startsWith("http")) {
-  console.warn("[Supabase Server] SUPABASE_URL and SUPABASE_ANON_KEY are swapped! Swapping them back automatically in memory.");
-  cleanSupabaseUrl = sRawKey;
+if (sRawUrl.startsWith("sb_publishable_") || sRawUrl.startsWith("sb_secret_")) {
   cleanSupabaseAnonKey = sRawUrl;
+  cleanSupabaseUrl = "https://mbfpvjnmbugihvvcsgxq.supabase.co";
+}
+
+if (!cleanSupabaseAnonKey && (sRawUrl.startsWith("sb_publishable_") || sRawUrl.startsWith("sb_secret_"))) {
+  cleanSupabaseAnonKey = sRawUrl;
+}
+
+if (!cleanSupabaseUrl || !cleanSupabaseUrl.startsWith("http")) {
+  cleanSupabaseUrl = "https://mbfpvjnmbugihvvcsgxq.supabase.co";
+}
+
+// In case keys are swapped
+if (!cleanSupabaseUrl.startsWith("http") && cleanSupabaseAnonKey.startsWith("http")) {
+  const temp = cleanSupabaseUrl;
+  cleanSupabaseUrl = cleanSupabaseAnonKey;
+  cleanSupabaseAnonKey = temp;
 }
 
 if (cleanSupabaseUrl.endsWith("/rest/v1/")) {

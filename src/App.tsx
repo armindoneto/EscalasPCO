@@ -58,14 +58,28 @@ if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
   rawKey = rawKey.slice(1, -1).trim();
 }
 
-// Self-healing: Check if URL and Anon Key are swapped (VITE_SUPABASE_URL contains key prefix instead of http)
+// Self-healing: Check if URL is actually a key
 let cleanClientSupabaseUrl = rawUrl;
 let cleanClientSupabaseAnonKey = rawKey;
 
-if (!rawUrl.startsWith("http") && rawKey.startsWith("http")) {
-  console.warn("[Supabase Diagnostic] VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are swapped! Swapping them back automatically in memory.");
-  cleanClientSupabaseUrl = rawKey;
+if (rawUrl.startsWith("sb_publishable_") || rawUrl.startsWith("sb_secret_")) {
   cleanClientSupabaseAnonKey = rawUrl;
+  cleanClientSupabaseUrl = "https://mbfpvjnmbugihvvcsgxq.supabase.co";
+}
+
+if (!cleanClientSupabaseAnonKey && (rawUrl.startsWith("sb_publishable_") || rawUrl.startsWith("sb_secret_"))) {
+  cleanClientSupabaseAnonKey = rawUrl;
+}
+
+if (!cleanClientSupabaseUrl || !cleanClientSupabaseUrl.startsWith("http")) {
+  cleanClientSupabaseUrl = "https://mbfpvjnmbugihvvcsgxq.supabase.co";
+}
+
+// In case keys are swapped
+if (!cleanClientSupabaseUrl.startsWith("http") && cleanClientSupabaseAnonKey.startsWith("http")) {
+  const temp = cleanClientSupabaseUrl;
+  cleanClientSupabaseUrl = cleanClientSupabaseAnonKey;
+  cleanClientSupabaseAnonKey = temp;
 }
 
 if (cleanClientSupabaseUrl.endsWith("/rest/v1/")) {
@@ -923,15 +937,29 @@ export default function App() {
       </header>
 
       {/* Vercel Environment Configuration Notice */}
-      {isVercelEnvironment && !clientSupabase && showVercelSetup && (
-        <div className="no-print mx-8 mt-4 p-5 bg-indigo-50 border border-indigo-200 rounded-lg text-slate-800 shadow-xs">
+      {isVercelEnvironment && showVercelSetup && (
+        <div className={`no-print mx-8 mt-4 p-5 rounded-lg border shadow-xs ${
+          clientSupabase 
+            ? "bg-emerald-50/80 border-emerald-200 text-slate-800" 
+            : "bg-indigo-50 border-indigo-200 text-slate-800"
+        }`}>
           <div className="flex items-start gap-3">
-            <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+            {clientSupabase ? (
+              <Sparkles className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+            ) : (
+              <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+            )}
             <div className="flex-1">
               <div className="flex items-center justify-between">
-                <h3 className="font-bold text-indigo-900 text-sm uppercase tracking-wide flex items-center gap-2">
-                  <span>Configuração de Conexão Necessária para a Vercel</span>
-                  <span className="bg-indigo-200 text-indigo-800 text-[9px] px-1.5 py-0.5 rounded font-black">IMPORTANTE</span>
+                <h3 className={`font-bold text-sm uppercase tracking-wide flex items-center gap-2 ${
+                  clientSupabase ? "text-emerald-900" : "text-indigo-900"
+                }`}>
+                  <span>{clientSupabase ? "Conexão Auto-Corrigida com Sucesso!" : "Configuração de Chaves da Vercel / Supabase"}</span>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${
+                    clientSupabase ? "bg-emerald-200 text-emerald-800" : "bg-indigo-200 text-indigo-800"
+                  }`}>
+                    {clientSupabase ? "RESOLVIDO" : "INSTRUÇÕES"}
+                  </span>
                 </h3>
                 <button 
                   onClick={() => setShowVercelSetup(false)}
@@ -940,36 +968,48 @@ export default function App() {
                   Ocultar aviso
                 </button>
               </div>
-              <p className="text-xs text-indigo-700 mt-1 font-medium leading-relaxed">
-                Para que o aplicativo conecte com o seu banco de dados Supabase na Vercel, as chaves precisam ser cadastradas nas configurações do projeto da Vercel. Como o Vite gera arquivos estáticos compilados, <strong>as variáveis de ambiente precisam estar presentes durante a compilação (Build) do projeto</strong>.
-              </p>
+
+              {clientSupabase ? (
+                <div className="mt-2 text-xs leading-relaxed text-emerald-800">
+                  <p className="font-semibold">
+                    Descobrimos e corrigimos o problema automaticamente em tempo de execução!
+                  </p>
+                  <p className="mt-1">
+                    Como a variável <code className="bg-emerald-100 px-1 rounded font-mono text-[11px] text-emerald-900 font-bold">VITE_SUPABASE_URL</code> estava configurada na Vercel com a chave pública (<code className="font-mono text-[11px]">sb_publishable_...</code>) em vez do endereço web (<code className="font-mono text-[11px]">https://...</code>), implementamos uma lógica de <strong>Auto-Cura (Self-Healing)</strong>. 
+                  </p>
+                  <p className="mt-1 font-semibold">
+                    Agora o aplicativo reconstrói o link real (<code className="font-mono text-[11px]">https://mbfpvjnmbugihvvcsgxq.supabase.co</code>) e extrai a chave pública corretamente, permitindo que a conexão com o Supabase funcione perfeitamente sem você precisar mexer em nada!
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-indigo-700 mt-1 font-medium leading-relaxed">
+                  Para que o aplicativo conecte com o seu banco de dados Supabase na Vercel, as chaves precisam estar cadastradas nas configurações do projeto da Vercel. Como o Vite gera arquivos estáticos compilados, as variáveis precisam estar presentes durante a compilação.
+                </p>
+              )}
               
               <div className="mt-3 text-xs text-slate-700 space-y-2">
-                <div className="p-3 bg-indigo-100/70 border border-indigo-200 rounded-md font-sans text-xs">
-                  <div className="font-bold text-indigo-900 mb-1">🔍 Diagnóstico do Navegador (O que o seu app está vendo agora):</div>
+                <div className={`p-3 rounded-md font-sans text-xs border ${
+                  clientSupabase ? "bg-emerald-100/50 border-emerald-200" : "bg-indigo-100/70 border-indigo-200"
+                }`}>
+                  <div className="font-bold mb-1">🔍 Diagnóstico do Navegador (Como o app enxerga as chaves):</div>
                   <ul className="list-disc pl-5 space-y-1 text-[11px] text-slate-700">
-                    <li><strong>VITE_SUPABASE_URL:</strong> {clientSupabaseUrlRaw ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ (Começa com "{cleanClientSupabaseUrl.substring(0, Math.min(25, cleanClientSupabaseUrl.length))}")</span> : <span className="text-rose-600 font-bold">❌ Não encontrada / Em branco</span>}</li>
-                    <li><strong>VITE_SUPABASE_ANON_KEY:</strong> {clientSupabaseAnonKey ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ ({cleanClientSupabaseAnonKey.length} caracteres)</span> : <span className="text-rose-600 font-bold">❌ Não encontrada / Em branco</span>}</li>
-                    <li><strong>Status da Conexão Direta:</strong> {clientSupabase ? <span className="text-emerald-700 font-bold">Ativa! Conectado diretamente ao Supabase.</span> : <span className="text-amber-700 font-bold">Inativa (Conexão direta não pôde ser estabelecida).</span>}</li>
+                    <li><strong>VITE_SUPABASE_URL:</strong> {clientSupabaseUrlRaw ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ (Começa com "{cleanClientSupabaseUrl.substring(0, Math.min(25, cleanClientSupabaseUrl.length))}")</span> : <span className="text-rose-600 font-bold">❌ Não encontrada</span>}</li>
+                    <li><strong>VITE_SUPABASE_ANON_KEY:</strong> {clientSupabaseAnonKey ? <span className="text-emerald-700 font-mono font-semibold">Detectada ✔️ ({cleanClientSupabaseAnonKey.length} caracteres)</span> : <span className="text-rose-600 font-bold">❌ Não encontrada</span>}</li>
+                    <li><strong>Status da Conexão Direta:</strong> {clientSupabase ? <span className="text-emerald-700 font-black">Ativa! Conectado diretamente ao Supabase.</span> : <span className="text-amber-700 font-bold">Inativa</span>}</li>
                   </ul>
                 </div>
 
-                <p className="font-semibold text-indigo-900 mt-3">Siga estes 4 passos simples:</p>
-                <ol className="list-decimal pl-5 space-y-1.5 text-slate-600 font-medium">
-                  <li>Acesse o painel do seu projeto na <strong>Vercel</strong>.</li>
-                  <li>Vá na aba <strong>Settings</strong> (Configurações) &gt; <strong>Environment Variables</strong> (Variáveis de Ambiente).</li>
-                  <li>Adicione exatamente estas duas variáveis com os seus dados correspondentes do Supabase:
-                    <div className="mt-2 font-mono text-[11px] bg-white p-3 rounded border border-slate-200 select-all max-w-xl space-y-1 text-slate-800 shadow-2xs">
-                      <div><strong className="text-indigo-600">VITE_SUPABASE_URL</strong> = <span className="text-slate-500">https://xxxx.supabase.co</span></div>
-                      <div><strong className="text-indigo-600">VITE_SUPABASE_ANON_KEY</strong> = <span className="text-slate-500">sua_chave_anonima_publica_aqui</span></div>
-                    </div>
-                  </li>
-                  <li>
-                    <span className="text-rose-600 font-bold">⚠️ PASSO CRUCIAL PARA ENTRAR EM VIGOR:</span> Após cadastrar e salvar as duas variáveis na Vercel, <strong>você deve gerar um novo Deploy (Redeploy)</strong> para que o Vite compile as chaves! 
-                    <br />
-                    <span className="text-slate-500 font-normal">Para isso, na aba <strong>Deployments</strong> do projeto no painel da Vercel, clique nos três pontinhos à direita do último deploy e selecione a opção <strong>Redeploy</strong> (com a opção "Use existing Build Cache" desmarcada para forçar uma compilação nova).</span>
-                  </li>
-                </ol>
+                <p className="font-bold text-slate-800 mt-3">Diferença clara entre as chaves do Supabase:</p>
+                <div className="bg-white p-3 rounded border border-slate-200 select-all max-w-xl space-y-2 text-slate-700 text-[11px] leading-relaxed">
+                  <div>
+                    <strong className="text-indigo-600">1. URL do Projeto (VITE_SUPABASE_URL):</strong> É sempre o endereço HTTP do seu projeto. Exemplo:
+                    <div className="bg-slate-50 p-1 px-2 rounded font-mono text-slate-600 border border-slate-100 mt-0.5">https://mbfpvjnmbugihvvcsgxq.supabase.co</div>
+                  </div>
+                  <div>
+                    <strong className="text-indigo-600">2. Chave Pública Anon (VITE_SUPABASE_ANON_KEY):</strong> É o token que começa com <code className="bg-slate-50 px-1 rounded font-mono text-indigo-800 font-bold">sb_publishable_</code>. Exemplo:
+                    <div className="bg-slate-50 p-1 px-2 rounded font-mono text-slate-600 border border-slate-100 mt-0.5">sb_publishable_ERzQK_7Lm7p4zZKoZOILAg_3zc-8ImA</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
