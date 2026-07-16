@@ -42,11 +42,30 @@ const clientSupabaseUrlRaw = import.meta.env.VITE_SUPABASE_URL || "";
 const clientSupabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 let clientSupabase: ReturnType<typeof createClient> | null = null;
 
-let cleanClientSupabaseUrl = clientSupabaseUrlRaw.trim();
-if (cleanClientSupabaseUrl.startsWith('"') && cleanClientSupabaseUrl.endsWith('"')) {
-  cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(1, -1).trim();
-} else if (cleanClientSupabaseUrl.startsWith("'") && cleanClientSupabaseUrl.endsWith("'")) {
-  cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(1, -1).trim();
+let rawUrl = clientSupabaseUrlRaw.trim();
+let rawKey = clientSupabaseAnonKey.trim();
+
+// 1. Clean quotes if any
+if (rawUrl.startsWith('"') && rawUrl.endsWith('"')) {
+  rawUrl = rawUrl.slice(1, -1).trim();
+} else if (rawUrl.startsWith("'") && rawUrl.endsWith("'")) {
+  rawUrl = rawUrl.slice(1, -1).trim();
+}
+
+if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
+  rawKey = rawKey.slice(1, -1).trim();
+} else if (rawKey.startsWith("'") && rawKey.endsWith("'")) {
+  rawKey = rawKey.slice(1, -1).trim();
+}
+
+// Self-healing: Check if URL and Anon Key are swapped (VITE_SUPABASE_URL contains key prefix instead of http)
+let cleanClientSupabaseUrl = rawUrl;
+let cleanClientSupabaseAnonKey = rawKey;
+
+if (!rawUrl.startsWith("http") && rawKey.startsWith("http")) {
+  console.warn("[Supabase Diagnostic] VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are swapped! Swapping them back automatically in memory.");
+  cleanClientSupabaseUrl = rawKey;
+  cleanClientSupabaseAnonKey = rawUrl;
 }
 
 if (cleanClientSupabaseUrl.endsWith("/rest/v1/")) {
@@ -56,13 +75,6 @@ if (cleanClientSupabaseUrl.endsWith("/rest/v1/")) {
 }
 if (cleanClientSupabaseUrl.endsWith("/")) {
   cleanClientSupabaseUrl = cleanClientSupabaseUrl.slice(0, -1);
-}
-
-let cleanClientSupabaseAnonKey = clientSupabaseAnonKey.trim();
-if (cleanClientSupabaseAnonKey.startsWith('"') && cleanClientSupabaseAnonKey.endsWith('"')) {
-  cleanClientSupabaseAnonKey = cleanClientSupabaseAnonKey.slice(1, -1).trim();
-} else if (cleanClientSupabaseAnonKey.startsWith("'") && cleanClientSupabaseAnonKey.endsWith("'")) {
-  cleanClientSupabaseAnonKey = cleanClientSupabaseAnonKey.slice(1, -1).trim();
 }
 
 console.log("[Supabase Diagnostic Raw] VITE_SUPABASE_URL length:", clientSupabaseUrlRaw.length);

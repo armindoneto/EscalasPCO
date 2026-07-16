@@ -15,11 +15,30 @@ const supabaseUrlRaw = process.env.SUPABASE_URL || "";
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
 let supabase: ReturnType<typeof createClient> | null = null;
 
-let cleanSupabaseUrl = supabaseUrlRaw.trim();
-if (cleanSupabaseUrl.startsWith('"') && cleanSupabaseUrl.endsWith('"')) {
-  cleanSupabaseUrl = cleanSupabaseUrl.slice(1, -1).trim();
-} else if (cleanSupabaseUrl.startsWith("'") && cleanSupabaseUrl.endsWith("'")) {
-  cleanSupabaseUrl = cleanSupabaseUrl.slice(1, -1).trim();
+let sRawUrl = supabaseUrlRaw.trim();
+let sRawKey = supabaseAnonKey.trim();
+
+// 1. Clean quotes if any
+if (sRawUrl.startsWith('"') && sRawUrl.endsWith('"')) {
+  sRawUrl = sRawUrl.slice(1, -1).trim();
+} else if (sRawUrl.startsWith("'") && sRawUrl.endsWith("'")) {
+  sRawUrl = sRawUrl.slice(1, -1).trim();
+}
+
+if (sRawKey.startsWith('"') && sRawKey.endsWith('"')) {
+  sRawKey = sRawKey.slice(1, -1).trim();
+} else if (sRawKey.startsWith("'") && sRawKey.endsWith("'")) {
+  sRawKey = sRawKey.slice(1, -1).trim();
+}
+
+// Self-healing: Check if URL and Anon Key are swapped (SUPABASE_URL contains key prefix instead of http)
+let cleanSupabaseUrl = sRawUrl;
+let cleanSupabaseAnonKey = sRawKey;
+
+if (!sRawUrl.startsWith("http") && sRawKey.startsWith("http")) {
+  console.warn("[Supabase Server] SUPABASE_URL and SUPABASE_ANON_KEY are swapped! Swapping them back automatically in memory.");
+  cleanSupabaseUrl = sRawKey;
+  cleanSupabaseAnonKey = sRawUrl;
 }
 
 if (cleanSupabaseUrl.endsWith("/rest/v1/")) {
@@ -29,13 +48,6 @@ if (cleanSupabaseUrl.endsWith("/rest/v1/")) {
 }
 if (cleanSupabaseUrl.endsWith("/")) {
   cleanSupabaseUrl = cleanSupabaseUrl.slice(0, -1);
-}
-
-let cleanSupabaseAnonKey = supabaseAnonKey.trim();
-if (cleanSupabaseAnonKey.startsWith('"') && cleanSupabaseAnonKey.endsWith('"')) {
-  cleanSupabaseAnonKey = cleanSupabaseAnonKey.slice(1, -1).trim();
-} else if (cleanSupabaseAnonKey.startsWith("'") && cleanSupabaseAnonKey.endsWith("'")) {
-  cleanSupabaseAnonKey = cleanSupabaseAnonKey.slice(1, -1).trim();
 }
 
 try {
