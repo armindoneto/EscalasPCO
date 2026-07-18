@@ -567,6 +567,7 @@ export default function App() {
     } else {
       setSoldadosSigners(newSigners);
     }
+    setIsDirty(true);
   };
 
   React.useEffect(() => {
@@ -586,7 +587,6 @@ export default function App() {
 
   const fileInputRefs = useRef<{ [slotId: string]: HTMLInputElement | null }>({});
 
-  // Load data on mount / month / year change
   React.useEffect(() => {
     async function loadData() {
       setDbSyncStatus('loading');
@@ -610,9 +610,33 @@ export default function App() {
             .maybeSingle();
           if (sError) throw sError;
 
-          const { parsedProfs, healedCells, changed } = healLoadedData(mData || [], sData?.cell_state || {}, selectedMonth, selectedYear);
+          const loadedCells = sData?.cell_state || {};
+          const { parsedProfs, healedCells, changed } = healLoadedData(mData || [], loadedCells, selectedMonth, selectedYear);
           setProfessionals(parsedProfs);
           setCellState(healedCells);
+
+          // Extract signers
+          if (loadedCells.__graduadosSigners) {
+            setGraduadosSigners(loadedCells.__graduadosSigners);
+          } else {
+            const saved = localStorage.getItem("military_signers_GRADUADOS");
+            if (saved) {
+              try {
+                setGraduadosSigners(JSON.parse(saved));
+              } catch (e) { /* ignore */ }
+            }
+          }
+          if (loadedCells.__soldadosSigners) {
+            setSoldadosSigners(loadedCells.__soldadosSigners);
+          } else {
+            const saved = localStorage.getItem("military_signers_SOLDADOS");
+            if (saved) {
+              try {
+                setSoldadosSigners(JSON.parse(saved));
+              } catch (e) { /* ignore */ }
+            }
+          }
+
           if (changed) setIsDirty(true);
           setDbSyncStatus('synced');
         } else {
@@ -650,7 +674,7 @@ export default function App() {
             if (!sData.success) {
               throw new Error(sData.message || "Falha do Supabase ao retornar escalas.");
             }
-            let loadedCells = {};
+            let loadedCells: any = {};
             if (sData.data) {
               loadedCells = sData.data.cell_state || {};
             }
@@ -658,6 +682,29 @@ export default function App() {
             const { parsedProfs, healedCells, changed } = healLoadedData(loadedProfs, loadedCells, selectedMonth, selectedYear);
             setProfessionals(parsedProfs);
             setCellState(healedCells);
+
+            // Extract signers
+            if (loadedCells.__graduadosSigners) {
+              setGraduadosSigners(loadedCells.__graduadosSigners);
+            } else {
+              const saved = localStorage.getItem("military_signers_GRADUADOS");
+              if (saved) {
+                try {
+                  setGraduadosSigners(JSON.parse(saved));
+                } catch (e) { /* ignore */ }
+              }
+            }
+            if (loadedCells.__soldadosSigners) {
+              setSoldadosSigners(loadedCells.__soldadosSigners);
+            } else {
+              const saved = localStorage.getItem("military_signers_SOLDADOS");
+              if (saved) {
+                try {
+                  setSoldadosSigners(JSON.parse(saved));
+                } catch (e) { /* ignore */ }
+              }
+            }
+
             if (changed) setIsDirty(true);
             setDbSyncStatus('synced');
           } else {
@@ -670,6 +717,29 @@ export default function App() {
             const { parsedProfs, healedCells, changed } = healLoadedData(localProfsRaw, localCellsRaw, selectedMonth, selectedYear);
             setProfessionals(parsedProfs);
             setCellState(healedCells);
+
+            // Extract signers
+            if (localCellsRaw.__graduadosSigners) {
+              setGraduadosSigners(localCellsRaw.__graduadosSigners);
+            } else {
+              const saved = localStorage.getItem("military_signers_GRADUADOS");
+              if (saved) {
+                try {
+                  setGraduadosSigners(JSON.parse(saved));
+                } catch (e) { /* ignore */ }
+              }
+            }
+            if (localCellsRaw.__soldadosSigners) {
+              setSoldadosSigners(localCellsRaw.__soldadosSigners);
+            } else {
+              const saved = localStorage.getItem("military_signers_SOLDADOS");
+              if (saved) {
+                try {
+                  setSoldadosSigners(JSON.parse(saved));
+                } catch (e) { /* ignore */ }
+              }
+            }
+
             if (changed) setIsDirty(true);
 
             setDbSyncStatus('local');
@@ -689,6 +759,29 @@ export default function App() {
         const { parsedProfs, healedCells, changed } = healLoadedData(localProfsRaw, localCellsRaw, selectedMonth, selectedYear);
         setProfessionals(parsedProfs);
         setCellState(healedCells);
+
+        // Extract signers
+        if (localCellsRaw.__graduadosSigners) {
+          setGraduadosSigners(localCellsRaw.__graduadosSigners);
+        } else {
+          const saved = localStorage.getItem("military_signers_GRADUADOS");
+          if (saved) {
+            try {
+              setGraduadosSigners(JSON.parse(saved));
+            } catch (e) { /* ignore */ }
+          }
+        }
+        if (localCellsRaw.__soldadosSigners) {
+          setSoldadosSigners(localCellsRaw.__soldadosSigners);
+        } else {
+          const saved = localStorage.getItem("military_signers_SOLDADOS");
+          if (saved) {
+            try {
+              setSoldadosSigners(JSON.parse(saved));
+            } catch (e) { /* ignore */ }
+          }
+        }
+
         if (changed) setIsDirty(true);
         
         triggerNotification("error", "Não foi possível conectar ao Supabase (verifique suas tabelas no painel). Operando com dados locais.");
@@ -703,9 +796,15 @@ export default function App() {
   React.useEffect(() => {
     if (!initialLoadDone) return;
 
+    const payloadCellState = {
+      ...cellState,
+      __graduadosSigners: graduadosSigners,
+      __soldadosSigners: soldadosSigners,
+    };
+
     // LocalStorage save is immediate so local data is always up-to-date
     localStorage.setItem("military_professionals", JSON.stringify(professionals));
-    localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(cellState));
+    localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(payloadCellState));
 
     // Only sync to Supabase if there are dirty (unsaved) changes
     if (!isDirty) return;
@@ -732,7 +831,7 @@ export default function App() {
               id,
               month: selectedMonth,
               year: selectedYear,
-              cell_state: cellState
+              cell_state: payloadCellState
             }, { onConflict: "id" });
           if (sError) throw sError;
 
@@ -755,7 +854,7 @@ export default function App() {
             body: JSON.stringify({
               month: selectedMonth,
               year: selectedYear,
-              cellState
+              cellState: payloadCellState
             }),
           });
 
@@ -776,15 +875,21 @@ export default function App() {
     }, 1500); // 1.5 seconds debounce
 
     return () => clearTimeout(handler);
-  }, [professionals, cellState, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
+  }, [professionals, cellState, graduadosSigners, soldadosSigners, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
 
   // Save current data state to Supabase or LocalStorage
   const handleSaveData = async () => {
     setDbSyncStatus('loading');
     try {
+      const payloadCellState = {
+        ...cellState,
+        __graduadosSigners: graduadosSigners,
+        __soldadosSigners: soldadosSigners,
+      };
+
       // Always save a local copy immediately first to prevent ANY data loss
       localStorage.setItem("military_professionals", JSON.stringify(professionals));
-      localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(cellState));
+      localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(payloadCellState));
 
       if (clientSupabase) {
         // Direct client-side connection save
@@ -805,7 +910,7 @@ export default function App() {
             id,
             month: selectedMonth,
             year: selectedYear,
-            cell_state: cellState
+            cell_state: payloadCellState
           }, { onConflict: "id" });
         if (sError) throw sError;
 
@@ -829,7 +934,7 @@ export default function App() {
           body: JSON.stringify({
             month: selectedMonth,
             year: selectedYear,
-            cellState
+            cellState: payloadCellState
           }),
         });
 
@@ -3803,16 +3908,16 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
               </div>
 
               {/* PAPER PAGE CONTAINER - STYLED TO LOOK LIKE TWO STACKED A4 SHEETS */}
-              <div className="print-area max-w-full overflow-x-auto mx-auto flex flex-col gap-12">
+              <div className="print-area max-w-full overflow-x-auto mx-auto flex flex-col gap-12 print:gap-0 print:overflow-visible">
                 
                 {/* SHEET 1: GRADUADOS */}
                 {activeScale === "GRADUADOS" && (
-                  <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black">
+                  <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 text-black">
                   
                   {/* Official Document Header with Legend */}
-                  <div className="flex items-center gap-10">
-                    <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[150px] h-[150px] object-contain shrink-0" referrerPolicy="no-referrer" />
-                    <div className="flex-1 flex flex-col">
+                  <div className="flex items-center gap-16">
+                    <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[200px] h-[200px] object-contain shrink-0" referrerPolicy="no-referrer" />
+                    <div className="flex-1 flex flex-col pl-6">
                       <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
                         DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
                       </h2>
@@ -3853,36 +3958,40 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       </div>
 
                       {/* Service Abbreviations row */}
-                      <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-2.5 px-1 pt-1.5">
-                        <div>
-                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            SD – SEGURANÇA E DEFESA
-                          </span>
+                      <div className="flex flex-col gap-y-0.5 mt-2.5 px-1 pt-1.5">
+                        <div className="grid grid-cols-3 gap-x-4">
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              SD – SEGURANÇA E DEFESA
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              KF – OPERADOR DE KF
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              MC – MOTORISTA DE COLETIVO
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            KF – OPERADOR DE KF
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            MC – MOTORISTA DE COLETIVO
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            TD – TÉCNICO DE DIA
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            AC – ACUMULANDO SEGURANÇA E DEFESA E TÉCNICO DE DIA
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            * – SERVIÇO EXTRA
-                          </span>
+                        <div className="flex items-center">
+                          <div className="w-[33.33%] shrink-0 pr-4">
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              TD – TÉCNICO DE DIA
+                            </span>
+                          </div>
+                          <div className="flex-1 whitespace-nowrap pr-4">
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              AC – ACUMULANDO SEGURANÇA E DEFESA E TÉCNICO DE DIA
+                            </span>
+                          </div>
+                          <div className="shrink-0 pl-12 pr-4">
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              * – SERVIÇO EXTRA
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3981,12 +4090,12 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* SHEET 2: SOLDADOS */}
                   {activeScale === "SOLDADOS" && (
-                    <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black">
+                    <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 text-black">
                     
                     {/* Official Document Header with Legend */}
-                    <div className="flex items-center gap-10">
-                      <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[150px] h-[150px] object-contain shrink-0" referrerPolicy="no-referrer" />
-                      <div className="flex-1 flex flex-col">
+                    <div className="flex items-center gap-16">
+                      <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[200px] h-[200px] object-contain shrink-0" referrerPolicy="no-referrer" />
+                      <div className="flex-1 flex flex-col pl-6">
                         <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
                           DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
                         </h2>
