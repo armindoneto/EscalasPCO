@@ -51,3 +51,12 @@ export interface CoverageStats {
   count: number;
   rolesPresent: { [role: string]: number };
 }
+
+export interface Signer {
+  id: string;
+  fullName: string;
+  warName: string;
+  rank: string;
+  role: string;
+}
+

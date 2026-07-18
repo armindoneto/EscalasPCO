@@ -39,7 +39,8 @@ import {
   ParsedScale, 
   MonthOption, 
   YearOption,
-  CoverageStats
+  CoverageStats,
+  Signer
 } from "./types";
 
 // Client-side Supabase client initialization (Direct call support for platforms like Vercel)
@@ -502,6 +503,79 @@ export default function App() {
 
   // CSV Help Modal state
   const [isCsvHelpModalOpen, setIsCsvHelpModalOpen] = useState<boolean>(false);
+
+  // Signatures Modal state
+  const [isSignaturesModalOpen, setIsSignaturesModalOpen] = useState<boolean>(false);
+  const [graduadosSigners, setGraduadosSigners] = useState<Signer[]>(() => {
+    const saved = localStorage.getItem("military_signers_GRADUADOS");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      {
+        id: "1",
+        fullName: "FABIO VALENTIM DA SILVA",
+        warName: "VALENTIM",
+        rank: "Cap",
+        role: "Chefe da Seção"
+      },
+      {
+        id: "2",
+        fullName: "ANDRÉ LUIZ COSTA DE SOUZA",
+        warName: "ANDRÉ LUIZ",
+        rank: "Maj",
+        role: "Comandante do DTCEA"
+      }
+    ];
+  });
+
+  const [soldadosSigners, setSoldadosSigners] = useState<Signer[]>(() => {
+    const saved = localStorage.getItem("military_signers_SOLDADOS");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // ignore
+      }
+    }
+    return [
+      {
+        id: "1",
+        fullName: "FABIO VALENTIM DA SILVA",
+        warName: "VALENTIM",
+        rank: "Cap",
+        role: "Chefe da Seção"
+      },
+      {
+        id: "2",
+        fullName: "ANDRÉ LUIZ COSTA DE SOUZA",
+        warName: "ANDRÉ LUIZ",
+        rank: "Maj",
+        role: "Comandante do DTCEA"
+      }
+    ];
+  });
+
+  const signers = activeScale === "GRADUADOS" ? graduadosSigners : soldadosSigners;
+  const setSigners = (newSigners: Signer[] | ((prev: Signer[]) => Signer[])) => {
+    if (activeScale === "GRADUADOS") {
+      setGraduadosSigners(newSigners);
+    } else {
+      setSoldadosSigners(newSigners);
+    }
+  };
+
+  React.useEffect(() => {
+    localStorage.setItem("military_signers_GRADUADOS", JSON.stringify(graduadosSigners));
+  }, [graduadosSigners]);
+
+  React.useEffect(() => {
+    localStorage.setItem("military_signers_SOLDADOS", JSON.stringify(soldadosSigners));
+  }, [soldadosSigners]);
 
   // Unmatched military names modal
   const [unmatchedNamesModal, setUnmatchedNamesModal] = useState<{
@@ -1974,6 +2048,74 @@ export default function App() {
     triggerNotification("success", "Expediente administrativo limpo com sucesso!");
   };
 
+  const [editingSignerId, setEditingSignerId] = useState<string | null>(null);
+  const [sigFullName, setSigFullName] = useState<string>("");
+  const [sigWarName, setSigWarName] = useState<string>("");
+  const [sigRank, setSigRank] = useState<string>("");
+  const [sigRole, setSigRole] = useState<string>("");
+
+  const handleOpenAddSigner = () => {
+    setEditingSignerId("new");
+    setSigFullName("");
+    setSigWarName("");
+    setSigRank("");
+    setSigRole("");
+  };
+
+  const handleOpenEditSigner = (signer: Signer) => {
+    setEditingSignerId(signer.id);
+    setSigFullName(signer.fullName);
+    setSigWarName(signer.warName);
+    setSigRank(signer.rank);
+    setSigRole(signer.role);
+  };
+
+  const handleSaveSigner = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sigFullName.trim() || !sigRank.trim() || !sigRole.trim()) {
+      triggerNotification("error", "Preencha todos os campos obrigatórios.");
+      return;
+    }
+
+    if (editingSignerId === "new") {
+      if (signers.length >= 6) {
+        triggerNotification("error", "Você atingiu o limite de 6 assinaturas.");
+        return;
+      }
+      const newSigner: Signer = {
+        id: Date.now().toString(),
+        fullName: sigFullName.trim(),
+        warName: sigWarName.trim(),
+        rank: sigRank.trim(),
+        role: sigRole.trim()
+      };
+      setSigners([...signers, newSigner]);
+      triggerNotification("success", "Assinatura cadastrada com sucesso!");
+    } else if (editingSignerId) {
+      setSigners(
+        signers.map((s) =>
+          s.id === editingSignerId
+            ? {
+                ...s,
+                fullName: sigFullName.trim(),
+                warName: sigWarName.trim(),
+                rank: sigRank.trim(),
+                role: sigRole.trim()
+              }
+            : s
+        )
+      );
+      triggerNotification("success", "Assinatura atualizada com sucesso!");
+    }
+
+    setEditingSignerId(null);
+  };
+
+  const handleDeleteSigner = (id: string) => {
+    setSigners(signers.filter((s) => s.id !== id));
+    triggerNotification("success", "Assinatura removida.");
+  };
+
   // Export to CSV
   const handleExportCSV = () => {
     if (professionals.length === 0) {
@@ -2013,7 +2155,42 @@ export default function App() {
     }
   };
 
+  const renderSignerText = (signer: Signer) => {
+    const fullName = signer.fullName;
+    const warName = signer.warName;
+    const rank = signer.rank;
+    
+    if (!warName) {
+      return (
+        <span className="font-sans text-xs text-slate-800 block font-medium">
+          {fullName} {rank}
+        </span>
+      );
+    }
 
+    const warWords = warName.split(/\s+/).filter(w => w.length > 0);
+    if (warWords.length === 0) {
+      return (
+        <span className="font-sans text-xs text-slate-800 block font-medium">
+          {fullName} {rank}
+        </span>
+      );
+    }
+
+    const escapedWords = warWords.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+    const regex = new RegExp("(" + escapedWords.join("|") + ")", "gi");
+    const parts = fullName.split(regex);
+
+    return (
+      <span className="font-sans text-xs text-slate-800 block font-medium">
+        {parts.map((part, idx) => {
+          const isMatch = warWords.some(w => w.toLowerCase() === part.toLowerCase());
+          return isMatch ? <strong key={idx}>{part}</strong> : part;
+        })}{" "}
+        {rank}
+      </span>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800 overflow-x-hidden">
@@ -2109,6 +2286,187 @@ export default function App() {
                   <ExternalLink className="w-3.5 h-3.5" /> Abrir em Nova Aba
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Signatures Management Modal */}
+      {isSignaturesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-lg w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <Users className="w-4 h-4 text-indigo-600" />
+                  Gerenciar Assinaturas da Impressão ({signers.length}/6)
+                </h3>
+                <button
+                  onClick={() => {
+                    setIsSignaturesModalOpen(false);
+                    setEditingSignerId(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {editingSignerId === null ? (
+                /* LIST VIEW */
+                <div className="space-y-4">
+                  <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
+                    {signers.length === 0 ? (
+                      <div className="text-center py-8 text-slate-400 border border-dashed border-slate-200 rounded text-xs font-medium">
+                        Nenhum assinante cadastrado.
+                      </div>
+                    ) : (
+                      signers.map((signer, index) => (
+                        <div
+                          key={signer.id}
+                          className="p-3 bg-slate-50 border border-slate-200 rounded flex items-center justify-between gap-4"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-[9px] font-black uppercase px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-sm">
+                                Posição {index + 1}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-bold uppercase">
+                                {signer.rank}
+                              </span>
+                            </div>
+                            <div className="text-xs font-bold text-slate-800 truncate">
+                              {renderSignerText(signer)}
+                            </div>
+                            <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                              {signer.role}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => handleOpenEditSigner(signer)}
+                              title="Editar"
+                              className="p-1.5 hover:bg-slate-200 text-slate-600 hover:text-indigo-600 rounded transition-all cursor-pointer"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSigner(signer.id)}
+                              title="Remover"
+                              className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between border-t border-slate-100 pt-4 mt-2">
+                    {signers.length < 6 ? (
+                      <button
+                        onClick={handleOpenAddSigner}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-2 rounded uppercase tracking-wider transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Adicionar Assinante
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-amber-600 font-extrabold uppercase">
+                        Limite de 6 assinantes atingido
+                      </span>
+                    )}
+
+                    <button
+                      onClick={() => setIsSignaturesModalOpen(false)}
+                      className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* ADD / EDIT FORM VIEW */
+                <form onSubmit={handleSaveSigner} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Nome Completo <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={sigFullName}
+                        onChange={(e) => setSigFullName(e.target.value)}
+                        placeholder=""
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Nome de Guerra <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={sigWarName}
+                        onChange={(e) => setSigWarName(e.target.value)}
+                        placeholder=""
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Posto ou Graduação <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={sigRank}
+                        onChange={(e) => setSigRank(e.target.value)}
+                        placeholder=""
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                        Função / Cargo <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={sigRole}
+                        onChange={(e) => setSigRole(e.target.value)}
+                        placeholder=""
+                        className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4 mt-4">
+                    <button
+                      type="button"
+                      onClick={() => setEditingSignerId(null)}
+                      className="border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors cursor-pointer"
+                    >
+                      Salvar Assinante
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>
@@ -3425,13 +3783,16 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                       Visualização de Impressão do Relatório Consolidado
                     </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Esta visualização simula perfeitamente o formato A4 paisagem para impressão do relatório.
-                    </p>
                   </div>
                 </div>
 
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => setIsSignaturesModalOpen(true)}
+                    className="bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer"
+                  >
+                    Assinaturas
+                  </button>
                   <button
                     onClick={handlePrint}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer"
@@ -3580,18 +3941,19 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                   </div>
 
                   {/* Approval Signatures */}
-                  <div className="grid grid-cols-2 gap-12 mt-10 pt-6 border-t border-dashed border-slate-300 text-center text-xs font-sans font-sans">
-                    <div className="flex flex-col items-center">
-                      <div className="w-64 border-b border-black mb-1.5 h-10"></div>
-                      <span className="font-bold text-slate-800">Responsável pelo Consolidado</span>
-                      <span className="text-[10px] text-slate-400 font-medium">Assinatura / Carimbo</span>
+                  {signers.length > 0 && (
+                    <div className="grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 border-t border-dashed border-slate-300 text-center">
+                      {signers.map((signer) => (
+                        <div key={signer.id} className="flex flex-col items-center">
+                          <div className="w-64 border-b border-black mb-1.5 h-12"></div>
+                          {renderSignerText(signer)}
+                          <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+                            {signer.role}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex flex-col items-center">
-                      <div className="w-64 border-b border-black mb-1.5 h-10"></div>
-                      <span className="font-bold text-slate-800">Diretoria Técnica / Administrativa</span>
-                      <span className="text-[10px] text-slate-400 font-medium">Homologação da Escala</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -3731,18 +4093,19 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                   </div>
 
                   {/* Approval Signatures */}
-                  <div className="grid grid-cols-2 gap-12 mt-10 pt-6 border-t border-dashed border-slate-300 text-center text-xs font-sans font-sans">
-                    <div className="flex flex-col items-center">
-                      <div className="w-64 border-b border-black mb-1.5 h-10"></div>
-                      <span className="font-bold text-slate-800">Responsável pelo Consolidado</span>
-                      <span className="text-[10px] text-slate-400 font-medium">Assinatura / Carimbo</span>
+                  {signers.length > 0 && (
+                    <div className="grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 border-t border-dashed border-slate-300 text-center">
+                      {signers.map((signer) => (
+                        <div key={signer.id} className="flex flex-col items-center">
+                          <div className="w-64 border-b border-black mb-1.5 h-12"></div>
+                          {renderSignerText(signer)}
+                          <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+                            {signer.role}
+                          </span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="flex flex-col items-center">
-                      <div className="w-64 border-b border-black mb-1.5 h-10"></div>
-                      <span className="font-bold text-slate-800">Diretoria Técnica / Administrativa</span>
-                      <span className="text-[10px] text-slate-400 font-medium">Homologação da Escala</span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -3756,7 +4119,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       </main>
 
       {/* Bottom Status Bar */}
-      <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-between shrink-0 text-white mt-auto">
+      <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
           2026 - v0.0.1 - Desenvolvido por Armindo Neto
         </div>
