@@ -257,12 +257,13 @@ app.get("/api/scales", async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabase
-      .from("military_monthly_scales")
-      .select("*")
-      .eq("month", month)
-      .eq("year", year)
-      .maybeSingle();
+    let query = supabase.from("military_monthly_scales").select("*");
+    if (month === 0 && year === 0) {
+      query = query.eq("id", "global-signatures");
+    } else {
+      query = query.eq("month", month).eq("year", year);
+    }
+    const { data, error } = await query.maybeSingle();
 
     if (error) throw error;
     res.json({ success: true, data });
@@ -287,7 +288,7 @@ app.post("/api/scales", async (req, res) => {
   }
 
   try {
-    const id = `scales-${month}-${year}`;
+    const id = (month === 0 && year === 0) ? "global-signatures" : `scales-${month}-${year}`;
     const { error } = await (supabase as any)
       .from("military_monthly_scales")
       .upsert({
