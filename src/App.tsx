@@ -615,9 +615,27 @@ export default function App() {
           setProfessionals(parsedProfs);
           setCellState(healedCells);
 
-          // Extract signers
-          if (loadedCells.__graduadosSigners) {
+          // Extract signers (prefer month-specific, fallback to global-signatures, fallback to localStorage, fallback to default)
+          let globalGraduados: Signer[] | null = null;
+          let globalSoldados: Signer[] | null = null;
+          try {
+            const { data: gData, error: gError } = await (clientSupabase as any)
+              .from("military_monthly_scales")
+              .select("*")
+              .eq("id", "global-signatures")
+              .maybeSingle();
+            if (!gError && gData?.cell_state) {
+              globalGraduados = gData.cell_state.__graduadosSigners || null;
+              globalSoldados = gData.cell_state.__soldadosSigners || null;
+            }
+          } catch (e) {
+            console.warn("Não foi possível carregar assinaturas globais:", e);
+          }
+
+          if (loadedCells.__graduadosSigners && loadedCells.__graduadosSigners.length > 0) {
             setGraduadosSigners(loadedCells.__graduadosSigners);
+          } else if (globalGraduados && globalGraduados.length > 0) {
+            setGraduadosSigners(globalGraduados);
           } else {
             const saved = localStorage.getItem("military_signers_GRADUADOS");
             if (saved) {
@@ -626,8 +644,11 @@ export default function App() {
               } catch (e) { /* ignore */ }
             }
           }
-          if (loadedCells.__soldadosSigners) {
+
+          if (loadedCells.__soldadosSigners && loadedCells.__soldadosSigners.length > 0) {
             setSoldadosSigners(loadedCells.__soldadosSigners);
+          } else if (globalSoldados && globalSoldados.length > 0) {
+            setSoldadosSigners(globalSoldados);
           } else {
             const saved = localStorage.getItem("military_signers_SOLDADOS");
             if (saved) {
@@ -683,9 +704,26 @@ export default function App() {
             setProfessionals(parsedProfs);
             setCellState(healedCells);
 
-            // Extract signers
-            if (loadedCells.__graduadosSigners) {
+            // Extract signers (prefer month-specific, fallback to global-signatures, fallback to localStorage, fallback to default)
+            let globalGraduados: Signer[] | null = null;
+            let globalSoldados: Signer[] | null = null;
+            try {
+              const gRes = await fetch(`/api/scales?month=0&year=0`);
+              if (gRes.ok) {
+                const gData = await gRes.json();
+                if (gData.success && gData.data?.cell_state) {
+                  globalGraduados = gData.data.cell_state.__graduadosSigners || null;
+                  globalSoldados = gData.data.cell_state.__soldadosSigners || null;
+                }
+              }
+            } catch (e) {
+              console.warn("Não foi possível carregar assinaturas globais via proxy:", e);
+            }
+
+            if (loadedCells.__graduadosSigners && loadedCells.__graduadosSigners.length > 0) {
               setGraduadosSigners(loadedCells.__graduadosSigners);
+            } else if (globalGraduados && globalGraduados.length > 0) {
+              setGraduadosSigners(globalGraduados);
             } else {
               const saved = localStorage.getItem("military_signers_GRADUADOS");
               if (saved) {
@@ -694,8 +732,11 @@ export default function App() {
                 } catch (e) { /* ignore */ }
               }
             }
-            if (loadedCells.__soldadosSigners) {
+
+            if (loadedCells.__soldadosSigners && loadedCells.__soldadosSigners.length > 0) {
               setSoldadosSigners(loadedCells.__soldadosSigners);
+            } else if (globalSoldados && globalSoldados.length > 0) {
+              setSoldadosSigners(globalSoldados);
             } else {
               const saved = localStorage.getItem("military_signers_SOLDADOS");
               if (saved) {
@@ -835,6 +876,19 @@ export default function App() {
             }, { onConflict: "id" });
           if (sError) throw sError;
 
+          // 3. Save global signatures as default
+          await (clientSupabase as any)
+            .from("military_monthly_scales")
+            .upsert({
+              id: "global-signatures",
+              month: 0,
+              year: 0,
+              cell_state: {
+                __graduadosSigners: graduadosSigners,
+                __soldadosSigners: soldadosSigners,
+              }
+            }, { onConflict: "id" });
+
           setDbSyncStatus('synced');
           setIsDirty(false);
         } else if (supabaseConfigured) {
@@ -855,6 +909,20 @@ export default function App() {
               month: selectedMonth,
               year: selectedYear,
               cellState: payloadCellState
+            }),
+          });
+
+          // 3. Save global signatures via server-side API proxy
+          await fetch("/api/scales", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              month: 0,
+              year: 0,
+              cellState: {
+                __graduadosSigners: graduadosSigners,
+                __soldadosSigners: soldadosSigners,
+              }
             }),
           });
 
@@ -914,6 +982,19 @@ export default function App() {
           }, { onConflict: "id" });
         if (sError) throw sError;
 
+        // 3. Save global signatures as default
+        await (clientSupabase as any)
+          .from("military_monthly_scales")
+          .upsert({
+            id: "global-signatures",
+            month: 0,
+            year: 0,
+            cell_state: {
+              __graduadosSigners: graduadosSigners,
+              __soldadosSigners: soldadosSigners,
+            }
+          }, { onConflict: "id" });
+
         setDbSyncStatus('synced');
         setIsDirty(false);
         triggerNotification("success", "Dados salvos e sincronizados diretamente com o Supabase!");
@@ -938,7 +1019,21 @@ export default function App() {
           }),
         });
 
-        if (mRes.ok && sRes.ok) {
+        // 3. Save global signatures via server-side proxy
+        const gRes = await fetch("/api/scales", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            month: 0,
+            year: 0,
+            cellState: {
+              __graduadosSigners: graduadosSigners,
+              __soldadosSigners: soldadosSigners,
+            }
+          }),
+        });
+
+        if (mRes.ok && sRes.ok && gRes.ok) {
           setDbSyncStatus('synced');
           setIsDirty(false);
           triggerNotification("success", "Dados salvos e sincronizados com o Supabase via servidor!");
@@ -4074,7 +4169,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     <div className="print-signatures grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 text-center">
                       {signers.map((signer) => (
                         <div key={signer.id} className="flex flex-col items-center">
-                          <div className="w-64 mb-1.5 h-12 border-b border-black"></div>
+                          <div className="w-64 mb-1.5 h-12"></div>
                           <div className="text-black font-bold uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                             {signer.fullName} {signer.rank ? `- ${signer.rank}` : ""}
                           </div>
@@ -4248,7 +4343,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       <div className="print-signatures grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 text-center">
                         {signers.map((signer) => (
                           <div key={signer.id} className="flex flex-col items-center">
-                            <div className="w-64 mb-1.5 h-12 border-b border-black"></div>
+                            <div className="w-64 mb-1.5 h-12"></div>
                             <div className="text-black font-bold uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                               {signer.fullName} {signer.rank ? `- ${signer.rank}` : ""}
                             </div>
