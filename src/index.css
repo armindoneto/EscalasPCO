@@ -128,5 +128,12 @@
 .print-signatures,
 .print-signatures * {
   font-size: 10px !important;
+  font-weight: normal !important;
+}
+
+.print-signatures strong,
+.print-signatures b,
+.print-signatures .font-bold {
+  font-weight: bold !important;
 }
 

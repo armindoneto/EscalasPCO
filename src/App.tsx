@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
+import XLSX from "xlsx-js-style";
 import { 
   FileSpreadsheet, 
   UploadCloud, 
@@ -2355,6 +2356,190 @@ export default function App() {
     }
   };
 
+  // Download .xlsx spreadsheet of the active scale with layout identical to print
+  const handleDownloadXlsx = () => {
+    try {
+      const activeProfs = activeScale === "GRADUADOS" ? sortedGraduados : sortedSoldados;
+      if (activeProfs.length === 0) {
+        triggerNotification("warning", `Não há militares cadastrados na escala de ${activeScale} para exportar.`);
+        return;
+      }
+
+      // 1. Headers: Military Column followed by day numbers (without day of week as requested)
+      const headers = [
+        activeScale === "GRADUADOS" ? "MILITARES" : "MILITARES / CIVIS",
+        ...daysArray.map((dayObj) => String(dayObj.day))
+      ];
+
+      // 2. Rows: For each professional, get name and all day states
+      const rows = activeProfs.map((prof) => {
+        const profName = [prof.rank, prof.specialty, prof.name].filter(Boolean).join(" ");
+        const dayValues = daysArray.map((dayObj) => {
+          const val = cellState[prof.id]?.[dayObj.day] || "";
+          // Do not render text for INDISP, PARECER, and EXPEDIENTE, just style the cell background
+          if (val === "INDISP" || val === "PARECER" || val === "EXPEDIENTE") {
+            return "";
+          }
+          return val;
+        });
+        return [profName, ...dayValues];
+      });
+
+      // 3. Assemble sheet data
+      const sheetData = [headers, ...rows];
+
+      // 4. Create SheetJS worksheet
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      // 5. Apply layout & style properties to every cell to match print preview exactly
+      const totalRows = sheetData.length;
+      const totalCols = headers.length;
+
+      for (let r = 0; r < totalRows; r++) {
+        for (let c = 0; c < totalCols; c++) {
+          const cellRef = XLSX.utils.encode_cell({ r: r, c: c });
+          if (!ws[cellRef]) {
+            // Ensure empty cells exist to be styled
+            ws[cellRef] = { t: "s", v: "" };
+          }
+          const cell = ws[cellRef];
+
+          // Base style setup for all cells
+          cell.s = {
+            font: { name: "Arial", sz: 10, bold: true },
+            border: {
+              top: { style: "thin", color: { rgb: "000000" } },
+              bottom: { style: "thin", color: { rgb: "000000" } },
+              left: { style: "thin", color: { rgb: "000000" } },
+              right: { style: "thin", color: { rgb: "000000" } }
+            },
+            alignment: {
+              horizontal: "center",
+              vertical: "center",
+              wrapText: true
+            },
+            fill: {}
+          };
+
+          if (r === 0) {
+            // Header Row Style
+            if (c === 0) {
+              // "MILITARES" / "MILITARES / CIVIS" Column Header
+              cell.s.fill = {
+                patternType: "solid",
+                fgColor: { rgb: "000000" }
+              };
+              cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+              cell.s.alignment.horizontal = "left";
+            } else {
+              // Day headers: Blue for weekdays, Red for weekends
+              const dayIndex = c - 1;
+              const dayObj = daysArray[dayIndex];
+              const headerBgColor = dayObj.isWeekend ? "990000" : "0B5394";
+
+              cell.s.fill = {
+                patternType: "solid",
+                fgColor: { rgb: headerBgColor }
+              };
+              cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+            }
+          } else {
+            // Body Rows Style
+            const profIndex = r - 1;
+            const prof = activeProfs[profIndex];
+
+            // Alternating row background: Even rows are white ("FFFFFF"), odd rows are medium gray ("B7B7B7")
+            const rowBaseColor = profIndex % 2 === 0 ? "FFFFFF" : "B7B7B7";
+
+            if (c === 0) {
+              // Military Name Column
+              cell.s.fill = {
+                patternType: "solid",
+                fgColor: { rgb: rowBaseColor }
+              };
+              cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "1A1A1A" } };
+              cell.s.alignment.horizontal = "left";
+            } else {
+              // Calendar cell values
+              const dayIndex = c - 1;
+              const dayObj = daysArray[dayIndex];
+              const originalVal = cellState[prof.id]?.[dayObj.day] || "";
+
+              if (originalVal === "INDISP") {
+                // Red block for Indisponibilidade
+                cell.s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "DC2626" }
+                };
+                cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+              } else if (originalVal === "PARECER") {
+                // Orange block for Parecer
+                cell.s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "FB923C" }
+                };
+                cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+              } else if (originalVal === "EXPEDIENTE") {
+                // Yellow block for Expediente
+                cell.s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: "FACC15" }
+                };
+                cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "1A1A1A" } };
+              } else {
+                // Regular scale cell (e.g. "SV", "SD", etc. or empty)
+                cell.s.fill = {
+                  patternType: "solid",
+                  fgColor: { rgb: rowBaseColor }
+                };
+
+                if (originalVal) {
+                  // Determine font color dynamically matching getCellFontColor
+                  const fontColorClass = getCellFontColor(dayObj.day, selectedMonth, selectedYear);
+                  let fontColorRgb = "000000";
+                  if (fontColorClass === "text-red-600") {
+                    fontColorRgb = "CC0000";
+                  } else if (fontColorClass === "text-purple-600") {
+                    fontColorRgb = "7F00FF";
+                  }
+
+                  cell.s.font = {
+                    name: "Arial",
+                    sz: 10,
+                    bold: true,
+                    color: { rgb: fontColorRgb }
+                  };
+                } else {
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "A3A3A3" } };
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 6. Configure column widths for perfect compact and wide layout matching the print preview
+      ws["!cols"] = [
+        { wch: 32 }, // Column A for Military Names (wide)
+        ...daysArray.map(() => ({ wch: 6 })) // Columns B..AF for Days (narrow & compact)
+      ];
+
+      // 7. Assemble workbook
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, `Escala ${activeScale}`);
+
+      // 8. Write and download file
+      const monthLabel = MONTHS.find((m) => m.value === selectedMonth)?.label || "";
+      const filename = `Escala_Consolidada_${activeScale}_${monthLabel}_${selectedYear}.xlsx`;
+      XLSX.writeFile(wb, filename);
+
+      triggerNotification("success", "Planilha .xlsx baixada com sucesso!");
+    } catch (error) {
+      console.error("Erro ao baixar planilha:", error);
+      triggerNotification("error", "Erro ao gerar arquivo Excel .xlsx.");
+    }
+  };
+
   const renderSignerText = (signer: Signer) => {
     const fullName = signer.fullName;
     const warName = signer.warName;
@@ -2388,6 +2573,45 @@ export default function App() {
           return isMatch ? <strong key={idx}>{part}</strong> : part;
         })}{" "}
         {rank}
+      </span>
+    );
+  };
+
+  const renderPrintSignerName = (signer: Signer) => {
+    const fullName = signer.fullName;
+    const warName = signer.warName;
+    const rank = signer.rank;
+    
+    const rankSuffix = rank ? ` - ${rank}` : "";
+    
+    if (!warName) {
+      return (
+        <span>
+          {fullName}{rankSuffix}
+        </span>
+      );
+    }
+
+    const warWords = warName.split(/\s+/).filter(w => w.length > 0);
+    if (warWords.length === 0) {
+      return (
+        <span>
+          {fullName}{rankSuffix}
+        </span>
+      );
+    }
+
+    const escapedWords = warWords.map(w => w.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'));
+    const regex = new RegExp("(" + escapedWords.join("|") + ")", "gi");
+    const parts = fullName.split(regex);
+
+    return (
+      <span>
+        {parts.map((part, idx) => {
+          const isMatch = warWords.some(w => w.toLowerCase() === part.toLowerCase());
+          return isMatch ? <strong key={idx} className="font-bold">{part}</strong> : part;
+        })}
+        {rankSuffix}
       </span>
     );
   };
@@ -3221,13 +3445,17 @@ Data;Escala;Escalado;Nome do Posto;
                   SCALE_OPTIONS.forEach((opt) => {
                     professionals.forEach((prof) => {
                       const val = cellState[prof.id]?.[day];
-                      if (val === opt.code) {
-                        const milStr = [prof.rank, prof.specialty, prof.name].filter(Boolean).join(" ");
-                        dutiesList.push({
-                          code: opt.code,
-                          label: opt.label,
-                          military: milStr
-                        });
+                      if (val) {
+                        const isExtra = val.endsWith("*");
+                        const cleanVal = isExtra ? val.slice(0, -1) : val;
+                        if (cleanVal === opt.code) {
+                          const milStr = [prof.rank, prof.specialty, prof.name].filter(Boolean).join(" ");
+                          dutiesList.push({
+                            code: val,
+                            label: opt.label + (isExtra ? " (Serviço Extra)" : ""),
+                            military: milStr
+                          });
+                        }
                       }
                     });
                   });
@@ -3690,6 +3918,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                             const isIndisp = cellValue === "INDISP";
                             const isParecer = cellValue === "PARECER";
                             const isExpediente = cellValue === "EXPEDIENTE";
+                            const cleanCellValue = cellValue.endsWith("*") ? cellValue.slice(0, -1) : cellValue;
 
                             // Mapping 9 service background colors (text is handled dynamically)
                             const serviceColors: { [key: string]: string } = {
@@ -3713,7 +3942,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                               : isExpediente
                               ? "bg-yellow-400 hover:bg-yellow-500 animate-fade-in"
                               : (isFilled 
-                                  ? (serviceColors[cellValue.toUpperCase()] || "bg-slate-100 hover:bg-slate-200") 
+                                  ? (serviceColors[cleanCellValue.toUpperCase()] || "bg-slate-100 hover:bg-slate-200") 
                                   : "hover:bg-slate-100/50");
 
                             const textClass = isIndisp 
@@ -3881,6 +4110,24 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                             ))}
                                           </div>
 
+                                          {/* Serviço Extra Toggle */}
+                                          <button
+                                            onMouseDown={() => {
+                                              if (!cellValue || isIndisp || isParecer || isExpediente) return;
+                                              const isExtra = cellValue.endsWith("*");
+                                              const newValue = isExtra ? cellValue.slice(0, -1) : `${cellValue}*`;
+                                              handleQuickSelectShift(prof.id, dayObj.day, newValue);
+                                            }}
+                                            disabled={!cellValue || isIndisp || isParecer || isExpediente}
+                                            className={`px-1.5 py-1.5 rounded-sm text-[10px] font-bold transition-colors w-full text-center cursor-pointer border uppercase tracking-wider ${
+                                              cellValue && cellValue.endsWith("*")
+                                                ? "bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
+                                                : "bg-amber-50 hover:bg-amber-200 text-amber-700 border-amber-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                                            }`}
+                                          >
+                                            Serviço Extra {cellValue && cellValue.endsWith("*") ? "★" : ""}
+                                          </button>
+
                                           {/* Indisponibilidade Button */}
                                           {isIndisp ? (
                                             <button
@@ -3999,6 +4246,13 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                   >
                     Imprimir Relatório (PDF)
                   </button>
+                  <button
+                    onClick={handleDownloadXlsx}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Download className="w-4 h-4" />
+                    Baixar Planilha
+                  </button>
                 </div>
               </div>
 
@@ -4010,9 +4264,11 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                   <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 text-black">
                   
                   {/* Official Document Header with Legend */}
-                  <div className="flex items-center gap-16">
-                    <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[200px] h-[200px] object-contain shrink-0" referrerPolicy="no-referrer" />
-                    <div className="flex-1 flex flex-col pl-6">
+                  <div className="flex items-stretch gap-6">
+                    <div className="w-48 shrink-0 min-w-[192px] max-w-[192px] flex items-center justify-center">
+                      <img src="/pco.png" alt="DTCEA-PCO Logo" className="h-full w-auto object-contain shrink-0" referrerPolicy="no-referrer" />
+                    </div>
+                    <div className="flex-1 flex flex-col">
                       <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
                         DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
                       </h2>
@@ -4053,40 +4309,39 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       </div>
 
                       {/* Service Abbreviations row */}
-                      <div className="flex flex-col gap-y-0.5 mt-2.5 px-1 pt-1.5">
-                        <div className="grid grid-cols-3 gap-x-4">
-                          <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              SD – SEGURANÇA E DEFESA
-                            </span>
-                          </div>
-                          <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              KF – OPERADOR DE KF
-                            </span>
-                          </div>
-                          <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              MC – MOTORISTA DE COLETIVO
-                            </span>
-                          </div>
+                      <div className="grid grid-cols-[290px_1fr_220px] w-full mt-2.5 px-1 pt-1.5 gap-y-0.5">
+                        {/* Line 1 */}
+                        <div>
+                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            SD – SEGURANÇA E DEFESA
+                          </span>
                         </div>
-                        <div className="flex items-center">
-                          <div className="w-[33.33%] shrink-0 pr-4">
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              TD – TÉCNICO DE DIA
-                            </span>
-                          </div>
-                          <div className="flex-1 whitespace-nowrap pr-4">
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              AC – ACUMULANDO SEGURANÇA E DEFESA E TÉCNICO DE DIA
-                            </span>
-                          </div>
-                          <div className="shrink-0 pl-12 pr-4">
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              * – SERVIÇO EXTRA
-                            </span>
-                          </div>
+                        <div>
+                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            KF – OPERADOR DE KF
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            MC – MOTORISTA DE COLETIVO
+                          </span>
+                        </div>
+                        
+                        {/* Line 2 */}
+                        <div>
+                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            TD – TÉCNICO DE DIA
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            AC – ACUMULANDO SEGURANÇA E DEFESA E TÉCNICO DE DIA
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            * – SERVIÇO EXTRA
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -4097,7 +4352,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     <table className="print-table w-full text-left border-collapse" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif' }}>
                       <thead>
                         <tr className="text-slate-800 font-bold uppercase border-b border-black">
-                          <th className="py-1 px-1.5 border-r-[3.5px] border-r-black w-48 bg-black text-white font-bold uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>MILITARES</th>
+                          <th className="py-1 px-1.5 border-r-[3.5px] border-r-black w-48 min-w-[192px] max-w-[192px] bg-black text-white font-bold uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>MILITARES</th>
                           {daysArray.map((dayObj) => (
                             <th 
                               key={dayObj.day} 
@@ -4123,7 +4378,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                         ) : (
                           sortedGraduados.map((prof, idx) => (
                             <tr key={prof.id} className={`hover:opacity-90 ${idx % 2 === 0 ? "bg-white" : "bg-[#b7b7b7]"}`}>
-                              <td className="py-0.5 px-1.5 font-bold border-r-[3.5px] border-r-black text-slate-900 whitespace-nowrap uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              <td className="py-0.5 px-1.5 font-bold border-r-[3.5px] border-r-black text-slate-900 whitespace-nowrap uppercase w-48 min-w-[192px] max-w-[192px] truncate" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                                 {prof.rank ? `${prof.rank} ` : ""}
                                 {prof.specialty ? `${prof.specialty} ` : ""}
                                 {prof.name}
@@ -4166,14 +4421,14 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* Approval Signatures */}
                   {signers.length > 0 && (
-                    <div className="print-signatures grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 text-center">
+                    <div className="print-signatures grid grid-cols-3 gap-y-12 gap-x-8 mt-12 text-center">
                       {signers.map((signer) => (
                         <div key={signer.id} className="flex flex-col items-center">
                           <div className="w-64 mb-1.5 h-12"></div>
-                          <div className="text-black font-bold uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            {signer.fullName} {signer.rank ? `- ${signer.rank}` : ""}
+                          <div className="text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
+                            {renderPrintSignerName(signer)}
                           </div>
-                          <div className="text-black font-bold uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                          <div className="text-black uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                             {signer.role}
                           </div>
                         </div>
@@ -4188,9 +4443,11 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 text-black">
                     
                     {/* Official Document Header with Legend */}
-                    <div className="flex items-center gap-16">
-                      <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[200px] h-[200px] object-contain shrink-0" referrerPolicy="no-referrer" />
-                      <div className="flex-1 flex flex-col pl-6">
+                    <div className="flex items-stretch gap-6">
+                      <div className="w-48 shrink-0 min-w-[192px] max-w-[192px] flex items-center justify-center">
+                        <img src="/pco.png" alt="DTCEA-PCO Logo" className="h-full w-auto object-contain shrink-0" referrerPolicy="no-referrer" />
+                      </div>
+                      <div className="flex-1 flex flex-col">
                         <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
                           DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
                         </h2>
@@ -4231,34 +4488,37 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                         </div>
 
                         {/* Service Abbreviations row */}
-                        <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-2.5 px-1 pt-1.5">
+                        <div className="grid grid-cols-[290px_1fr_220px] w-full mt-2.5 px-1 pt-1.5 gap-y-0.5">
+                          {/* Line 1 */}
                           <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                               ST – SENTINELA
                             </span>
                           </div>
                           <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                               PV – PERMANÊNCIA À VILA MILITAR
                             </span>
                           </div>
-                          <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                          <div className="text-right">
+                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                               SM – SOBREAVISO DE MOTORISTA DE DIA
                             </span>
                           </div>
+                          
+                          {/* Line 2 */}
                           <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                               MD – MOTORISTA DE DIA
                             </span>
                           </div>
                           <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                               SS – SOBREAVISO DE SENTINELA E PERMANÊNCIA
                             </span>
                           </div>
-                          <div>
-                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                          <div className="text-right">
+                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                               * – SERVIÇO EXTRA
                             </span>
                           </div>
@@ -4271,7 +4531,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       <table className="print-table w-full text-left border-collapse" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif' }}>
                         <thead>
                           <tr className="text-slate-800 font-bold uppercase border-b border-black">
-                            <th className="py-1 px-1.5 border-r-[3.5px] border-r-black w-48 bg-black text-white font-bold uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>MILITARES / CIVIS</th>
+                            <th className="py-1 px-1.5 border-r-[3.5px] border-r-black w-48 min-w-[192px] max-w-[192px] bg-black text-white font-bold uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>MILITARES / CIVIS</th>
                             {daysArray.map((dayObj) => (
                               <th 
                                 key={dayObj.day} 
@@ -4297,7 +4557,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                           ) : (
                             sortedSoldados.map((prof, idx) => (
                               <tr key={prof.id} className={`hover:opacity-90 ${idx % 2 === 0 ? "bg-white" : "bg-[#b7b7b7]"}`}>
-                                <td className="py-0.5 px-1.5 font-bold border-r-[3.5px] border-r-black text-slate-900 whitespace-nowrap uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                                <td className="py-0.5 px-1.5 font-bold border-r-[3.5px] border-r-black text-slate-900 whitespace-nowrap uppercase w-48 min-w-[192px] max-w-[192px] truncate" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                                   {prof.rank ? `${prof.rank} ` : ""}
                                   {prof.specialty ? `${prof.specialty} ` : ""}
                                   {prof.name}
@@ -4340,14 +4600,14 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                     {/* Approval Signatures */}
                     {signers.length > 0 && (
-                      <div className="print-signatures grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 text-center">
+                      <div className="print-signatures grid grid-cols-3 gap-y-12 gap-x-8 mt-12 text-center">
                         {signers.map((signer) => (
                           <div key={signer.id} className="flex flex-col items-center">
                             <div className="w-64 mb-1.5 h-12"></div>
-                            <div className="text-black font-bold uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              {signer.fullName} {signer.rank ? `- ${signer.rank}` : ""}
+                            <div className="text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
+                              {renderPrintSignerName(signer)}
                             </div>
-                            <div className="text-black font-bold uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            <div className="text-black uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                               {signer.role}
                             </div>
                           </div>
@@ -4369,7 +4629,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          2026 - v0.0.1 - Desenvolvido por Armindo Neto
+          2026 - v1.0.0 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>
