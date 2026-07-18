@@ -76,13 +76,19 @@
   }
 
   /* Tighten table padding and row line-height for high density */
-  .print-table th,
-  .print-table td {
+  .print-table th {
     padding-top: 2px !important;
     padding-bottom: 2px !important;
-    padding-left: 4px !important;
-    padding-right: 4px !important;
-    line-height: 1.1 !important;
+    padding-left: 3px !important;
+    padding-right: 3px !important;
+    line-height: 1.0 !important;
+  }
+  .print-table td {
+    padding-top: 1px !important;
+    padding-bottom: 1px !important;
+    padding-left: 3px !important;
+    padding-right: 3px !important;
+    line-height: 1.0 !important;
   }
 
   /* Hide scrollbars during print entirely */
@@ -108,26 +114,26 @@
 
 /* Specific custom typography sizes requested by user */
 .print-title, .print-title * {
-  font-size: 16px !important;
+  font-size: 14px !important;
 }
 
 .print-subtitle, .print-subtitle * {
-  font-size: 13px !important;
+  font-size: 11px !important;
 }
 
 .print-table,
 .print-table * {
-  font-size: 11px !important;
+  font-size: 10px !important;
 }
 
 .print-legend,
 .print-legend * {
-  font-size: 10px !important;
+  font-size: 9px !important;
 }
 
 .print-signatures,
 .print-signatures * {
-  font-size: 10px !important;
+  font-size: 9px !important;
   font-weight: normal !important;
 }
 

@@ -4261,7 +4261,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 
                 {/* SHEET 1: GRADUADOS */}
                 {activeScale === "GRADUADOS" && (
-                  <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 text-black">
+                  <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 print:gap-2.5 text-black">
                   
                   {/* Official Document Header with Legend */}
                   <div className="flex items-stretch gap-6">
@@ -4421,14 +4421,14 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* Approval Signatures */}
                   {signers.length > 0 && (
-                    <div className="print-signatures grid grid-cols-3 gap-y-12 gap-x-8 mt-12 text-center">
+                    <div className="print-signatures grid grid-cols-3 gap-y-4 print:gap-y-1.5 gap-x-8 mt-12 print:mt-4 text-center">
                       {signers.map((signer) => (
                         <div key={signer.id} className="flex flex-col items-center">
-                          <div className="w-64 mb-1.5 h-12"></div>
+                          <div className="w-64 mb-1 h-12 print:h-5"></div>
                           <div className="text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                             {renderPrintSignerName(signer)}
                           </div>
-                          <div className="text-black uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
+                          <div className="text-black mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                             {signer.role}
                           </div>
                         </div>
@@ -4440,7 +4440,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* SHEET 2: SOLDADOS */}
                   {activeScale === "SOLDADOS" && (
-                    <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 text-black">
+                    <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 print:gap-2.5 text-black">
                     
                     {/* Official Document Header with Legend */}
                     <div className="flex items-stretch gap-6">
@@ -4600,14 +4600,14 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                     {/* Approval Signatures */}
                     {signers.length > 0 && (
-                      <div className="print-signatures grid grid-cols-3 gap-y-12 gap-x-8 mt-12 text-center">
+                      <div className="print-signatures grid grid-cols-3 gap-y-4 print:gap-y-1.5 gap-x-8 mt-12 print:mt-4 text-center">
                         {signers.map((signer) => (
                           <div key={signer.id} className="flex flex-col items-center">
-                            <div className="w-64 mb-1.5 h-12"></div>
+                            <div className="w-64 mb-1 h-12 print:h-5"></div>
                             <div className="text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                               {renderPrintSignerName(signer)}
                             </div>
-                            <div className="text-black uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
+                            <div className="text-black mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                               {signer.role}
                             </div>
                           </div>
