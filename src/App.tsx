@@ -4218,7 +4218,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
           {/* TAB CONTENT 3: REPORT VIEW & EXPORT PREVIEW */}
           {activeTab === "report" && (
-            <div className="bg-white border border-slate-200 rounded shadow-sm flex-1 flex flex-col p-6 overflow-y-auto">
+            <div className="bg-white border border-slate-200 rounded shadow-sm flex-1 flex flex-col p-6 overflow-y-auto print:border-none print:p-0 print:shadow-none print:rounded-none">
               
               {/* Export Control Panel - Hidden in Print */}
               <div className="no-print bg-slate-50 border border-slate-200 p-4 rounded flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -4261,7 +4261,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 
                 {/* SHEET 1: GRADUADOS */}
                 {activeScale === "GRADUADOS" && (
-                  <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 print:gap-2.5 text-black">
+                  <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-1 text-black">
                   
                   {/* Official Document Header with Legend */}
                   <div className="flex items-stretch gap-6">
@@ -4421,11 +4421,11 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* Approval Signatures */}
                   {signers.length > 0 && (
-                    <div className="print-signatures grid grid-cols-3 gap-y-4 print:gap-y-1.5 gap-x-8 mt-12 print:mt-4 text-center">
+                    <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-4 gap-x-8 mt-5 print:mt-3 text-center">
                       {signers.map((signer) => (
                         <div key={signer.id} className="flex flex-col items-center">
                           <div className="w-64 mb-1 h-12 print:h-5"></div>
-                          <div className="text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
+                          <div className="text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                             {renderPrintSignerName(signer)}
                           </div>
                           <div className="text-black mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
@@ -4440,7 +4440,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* SHEET 2: SOLDADOS */}
                   {activeScale === "SOLDADOS" && (
-                    <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-6 print:gap-2.5 text-black">
+                    <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-1 text-black">
                     
                     {/* Official Document Header with Legend */}
                     <div className="flex items-stretch gap-6">
@@ -4600,11 +4600,11 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                     {/* Approval Signatures */}
                     {signers.length > 0 && (
-                      <div className="print-signatures grid grid-cols-3 gap-y-4 print:gap-y-1.5 gap-x-8 mt-12 print:mt-4 text-center">
+                      <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-4 gap-x-8 mt-5 print:mt-3 text-center">
                         {signers.map((signer) => (
                           <div key={signer.id} className="flex flex-col items-center">
                             <div className="w-64 mb-1 h-12 print:h-5"></div>
-                            <div className="text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
+                            <div className="text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>
                               {renderPrintSignerName(signer)}
                             </div>
                             <div className="text-black mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'normal' }}>

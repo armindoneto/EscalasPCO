@@ -26,7 +26,7 @@
     box-sizing: border-box !important;
   }
 
-  /* Force elements to fit precisely on a single A4 page */
+  /* Force elements to fit precisely on a single A4 page and remove any bounding border/shadow */
   html, body, #root, .min-h-screen, main {
     width: 280mm !important;
     max-width: 280mm !important;
@@ -38,6 +38,9 @@
     margin: 0 !important;
     padding: 0 !important;
     position: relative !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
   }
 
   .no-print {
