@@ -233,12 +233,29 @@ const parseLoadedProfessionals = (raw: any[]): Professional[] => {
     let rank = p.rank || "";
     let specialty = p.specialty || "";
     let sort_order = p.sort_order || 0;
+    let valid_from_month: number | undefined;
+    let valid_from_year: number | undefined;
+    let valid_until_month: number | undefined;
+    let valid_until_year: number | undefined;
+
     if (p.role && p.role.includes(":::")) {
       const parts = p.role.split(":::");
       rank = parts[0] || "";
       specialty = parts[1] || "";
       if (parts[2] !== undefined) {
         sort_order = parseInt(parts[2], 10) || 0;
+      }
+      if (parts[3] !== undefined && parts[3] !== "") {
+        valid_from_month = parseInt(parts[3], 10);
+      }
+      if (parts[4] !== undefined && parts[4] !== "") {
+        valid_from_year = parseInt(parts[4], 10);
+      }
+      if (parts[5] !== undefined && parts[5] !== "") {
+        valid_until_month = parseInt(parts[5], 10);
+      }
+      if (parts[6] !== undefined && parts[6] !== "") {
+        valid_until_year = parseInt(parts[6], 10);
       }
     } else if (!rank) {
       rank = "";
@@ -249,8 +266,80 @@ const parseLoadedProfessionals = (raw: any[]): Professional[] => {
       rank,
       specialty,
       sort_order,
+      valid_from_month,
+      valid_from_year,
+      valid_until_month,
+      valid_until_year,
     };
   });
+};
+
+const mapProfessionalsToDb = (profs: any[]) => {
+  return profs.map(p => {
+    const parts = [
+      p.rank || "",
+      p.specialty || "",
+      p.sort_order || 0,
+      p.valid_from_month !== undefined ? p.valid_from_month : "",
+      p.valid_from_year !== undefined ? p.valid_from_year : "",
+      p.valid_until_month !== undefined ? p.valid_until_month : "",
+      p.valid_until_year !== undefined ? p.valid_until_year : ""
+    ];
+    return {
+      id: p.id,
+      name: p.name,
+      role: parts.join(":::"),
+      category: p.category
+    };
+  });
+};
+
+const isProfessionalValidForMonth = (p: any, month: number, year: number): boolean => {
+  if (p.valid_from_year !== undefined && p.valid_from_month !== undefined) {
+    if (year < p.valid_from_year) return false;
+    if (year === p.valid_from_year && month < p.valid_from_month) return false;
+  }
+  if (p.valid_until_year !== undefined && p.valid_until_month !== undefined) {
+    if (year > p.valid_until_year) return false;
+    if (year === p.valid_until_year && month > p.valid_until_month) return false;
+  }
+  return true;
+};
+
+const isMonthYearAtOrAfter = (m1: number, y1: number, m2: number, y2: number): boolean => {
+  if (y1 > y2) return true;
+  if (y1 === y2 && m1 >= m2) return true;
+  return false;
+};
+
+const getPreviousMonthAndYear = (m: number, y: number) => {
+  if (m === 0) {
+    return { month: 11, year: y - 1 };
+  } else {
+    return { month: m - 1, year: y };
+  }
+};
+
+const healCellState = (cells: any, profs: Professional[], m: number, y: number) => {
+  let changed = false;
+  const newCells = { ...cells };
+  profs.forEach(p => {
+    if (p.id.includes("_hist_")) {
+      const origId = p.id.split("_hist_")[0];
+      if (newCells[origId] && isProfessionalValidForMonth(p, m, y)) {
+        newCells[p.id] = newCells[origId];
+        delete newCells[origId];
+        changed = true;
+      }
+    }
+  });
+  return { healedCells: newCells, changed };
+};
+
+const healLoadedData = (rawProfs: any[], rawCells: any, m: number, y: number) => {
+  const parsedProfs = parseLoadedProfessionals(rawProfs);
+  const { healedCells, changed } = healCellState(rawCells, parsedProfs, m, y);
+  return { parsedProfs, healedCells, changed };
 };
 
 const normalizeStr = (str: string) => {
@@ -367,6 +456,10 @@ export default function App() {
   const [quickEditValue, setQuickEditValue] = useState<string>("");
   const [indispEndDay, setIndispEndDay] = useState<number>(1);
   const [isLaunchingIndisp, setIsLaunchingIndisp] = useState<boolean>(false);
+  const [parecerEndDay, setParecerEndDay] = useState<number>(1);
+  const [isLaunchingParecer, setIsLaunchingParecer] = useState<boolean>(false);
+  const [expedienteEndDay, setExpedienteEndDay] = useState<number>(1);
+  const [isLaunchingExpediente, setIsLaunchingExpediente] = useState<boolean>(false);
   const [selectedDayForPopup, setSelectedDayForPopup] = useState<number | null>(null);
 
   // Notification and warning overlay state
@@ -392,6 +485,17 @@ export default function App() {
   const [editSpecialty, setEditSpecialty] = useState<string>("");
   const [editName, setEditName] = useState<string>("");
   const [editCategory, setEditCategory] = useState<'GRADUADOS' | 'SOLDADOS'>('GRADUADOS');
+  const [editType, setEditType] = useState<"definitive" | "specific_month">("definitive");
+  const [editMonth, setEditMonth] = useState<number>(selectedMonth);
+  const [editYear, setEditYear] = useState<number>(selectedYear);
+
+  // Delete Military Modal state
+  const [isDeleteMilitaryModalOpen, setIsDeleteMilitaryModalOpen] = useState<boolean>(false);
+  const [deletingProfId, setDeletingProfId] = useState<string>("");
+  const [deletingProfName, setDeletingProfName] = useState<string>("");
+  const [deleteType, setDeleteType] = useState<"definitive" | "specific_month">("definitive");
+  const [deleteMonth, setDeleteMonth] = useState<number>(selectedMonth);
+  const [deleteYear, setDeleteYear] = useState<number>(selectedYear);
 
   // Print Iframe Warning Modal state
   const [isPrintIframeModalOpen, setIsPrintIframeModalOpen] = useState<boolean>(false);
@@ -432,8 +536,10 @@ export default function App() {
             .maybeSingle();
           if (sError) throw sError;
 
-          setProfessionals(parseLoadedProfessionals(mData || []));
-          setCellState(sData?.cell_state || {});
+          const { parsedProfs, healedCells, changed } = healLoadedData(mData || [], sData?.cell_state || {}, selectedMonth, selectedYear);
+          setProfessionals(parsedProfs);
+          setCellState(healedCells);
+          if (changed) setIsDirty(true);
           setDbSyncStatus('synced');
         } else {
           // Check Supabase connection status via server-side proxy
@@ -475,19 +581,22 @@ export default function App() {
               loadedCells = sData.data.cell_state || {};
             }
 
-            setProfessionals(parseLoadedProfessionals(loadedProfs));
-            setCellState(loadedCells);
+            const { parsedProfs, healedCells, changed } = healLoadedData(loadedProfs, loadedCells, selectedMonth, selectedYear);
+            setProfessionals(parsedProfs);
+            setCellState(healedCells);
+            if (changed) setIsDirty(true);
             setDbSyncStatus('synced');
           } else {
             // Fallback to local storage
             const localProfs = localStorage.getItem("military_professionals");
             const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
 
-            if (localProfs) setProfessionals(parseLoadedProfessionals(JSON.parse(localProfs)));
-            else setProfessionals([]);
-
-            if (localCells) setCellState(JSON.parse(localCells));
-            else setCellState({});
+            const localProfsRaw = localProfs ? JSON.parse(localProfs) : [];
+            const localCellsRaw = localCells ? JSON.parse(localCells) : {};
+            const { parsedProfs, healedCells, changed } = healLoadedData(localProfsRaw, localCellsRaw, selectedMonth, selectedYear);
+            setProfessionals(parsedProfs);
+            setCellState(healedCells);
+            if (changed) setIsDirty(true);
 
             setDbSyncStatus('local');
           }
@@ -501,11 +610,12 @@ export default function App() {
         const localProfs = localStorage.getItem("military_professionals");
         const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
 
-        if (localProfs) setProfessionals(parseLoadedProfessionals(JSON.parse(localProfs)));
-        else setProfessionals([]);
-
-        if (localCells) setCellState(JSON.parse(localCells));
-        else setCellState({});
+        const localProfsRaw = localProfs ? JSON.parse(localProfs) : [];
+        const localCellsRaw = localCells ? JSON.parse(localCells) : {};
+        const { parsedProfs, healedCells, changed } = healLoadedData(localProfsRaw, localCellsRaw, selectedMonth, selectedYear);
+        setProfessionals(parsedProfs);
+        setCellState(healedCells);
+        if (changed) setIsDirty(true);
         
         triggerNotification("error", "Não foi possível conectar ao Supabase (verifique suas tabelas no painel). Operando com dados locais.");
       } finally {
@@ -533,12 +643,7 @@ export default function App() {
         if (clientSupabase) {
           // 1. Save professionals
           if (professionals && professionals.length > 0) {
-            const cleanProfs = professionals.map(p => ({
-              id: p.id,
-              name: p.name,
-              role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
-              category: p.category
-            }));
+            const cleanProfs = mapProfessionalsToDb(professionals);
             const { error: mError } = await (clientSupabase as any)
               .from("military_professionals")
               .upsert(cleanProfs, { onConflict: "id" });
@@ -562,12 +667,7 @@ export default function App() {
         } else if (supabaseConfigured) {
           // Save via server-side API proxy
           // 1. Save professionals
-          const cleanProfs = professionals.map(p => ({
-            id: p.id,
-            name: p.name,
-            role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
-            category: p.category
-          }));
+          const cleanProfs = mapProfessionalsToDb(professionals);
           const mRes = await fetch("/api/military", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -616,12 +716,7 @@ export default function App() {
         // Direct client-side connection save
         // 1. Save professionals
         if (professionals && professionals.length > 0) {
-          const cleanProfs = professionals.map(p => ({
-            id: p.id,
-            name: p.name,
-            role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
-            category: p.category
-          }));
+          const cleanProfs = mapProfessionalsToDb(professionals);
           const { error: mError } = await (clientSupabase as any)
             .from("military_professionals")
             .upsert(cleanProfs, { onConflict: "id" });
@@ -646,12 +741,7 @@ export default function App() {
       } else if (supabaseConfigured) {
         // Save via server-side proxy
         // 1. Save professionals
-        const cleanProfs = professionals.map(p => ({
-          id: p.id,
-          name: p.name,
-          role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
-          category: p.category
-        }));
+        const cleanProfs = mapProfessionalsToDb(professionals);
         const mRes = await fetch("/api/military", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -732,9 +822,14 @@ export default function App() {
     });
   }, [daysInMonth, selectedMonth, selectedYear]);
 
+  // Filter active military personnel for the current month and year
+  const activeProfessionals = useMemo(() => {
+    return professionals.filter((p) => isProfessionalValidForMonth(p, selectedMonth, selectedYear));
+  }, [professionals, selectedMonth, selectedYear]);
+
   // Filter military personnel based on search and active scale
   const filteredProfessionals = useMemo(() => {
-    return professionals
+    return activeProfessionals
       .filter((p) => {
         return p.category === activeScale && p.name.toLowerCase().includes(searchQuery.toLowerCase());
       })
@@ -746,11 +841,11 @@ export default function App() {
         }
         return a.name.localeCompare(b.name);
       });
-  }, [professionals, searchQuery, activeScale]);
+  }, [activeProfessionals, searchQuery, activeScale]);
 
   // Sorted lists for the print/report view to preserve user-defined order
   const sortedGraduados = useMemo(() => {
-    return professionals
+    return activeProfessionals
       .filter((p) => p.category === "GRADUADOS")
       .sort((a, b) => {
         const orderA = a.sort_order ?? 0;
@@ -760,10 +855,10 @@ export default function App() {
         }
         return a.name.localeCompare(b.name);
       });
-  }, [professionals]);
+  }, [activeProfessionals]);
 
   const sortedSoldados = useMemo(() => {
-    return professionals
+    return activeProfessionals
       .filter((p) => p.category === "SOLDADOS")
       .sort((a, b) => {
         const orderA = a.sort_order ?? 0;
@@ -773,7 +868,7 @@ export default function App() {
         }
         return a.name.localeCompare(b.name);
       });
-  }, [professionals]);
+  }, [activeProfessionals]);
 
   // Show a status notification helper
   const triggerNotification = (type: "success" | "warning" | "error" | "info", message: string) => {
@@ -797,7 +892,7 @@ export default function App() {
       if (!cleanName) return;
 
       // Find in ALL professionals regardless of active category using robust rank + name matching
-      const existing = matchMilitaryName(cleanName, professionals, targetCategory);
+      const existing = matchMilitaryName(cleanName, activeProfessionals, targetCategory);
 
       if (existing) {
         matchedEntries.push({
@@ -1008,7 +1103,7 @@ export default function App() {
 
           // Match military member
           const targetCategory = getTargetCategoryForSigla(sigla);
-          const matchedProf = matchMilitaryName(cleanMilitaryName, professionals, targetCategory);
+          const matchedProf = matchMilitaryName(cleanMilitaryName, activeProfessionals, targetCategory);
 
           if (matchedProf) {
             scaleChanges[matchedProf.id] = scaleChanges[matchedProf.id] || {};
@@ -1176,7 +1271,7 @@ export default function App() {
           if (!cleanMilitaryName) continue;
 
           const targetCategory = getTargetCategoryForSigla(sigla);
-          const matchedProf = matchMilitaryName(cleanMilitaryName, professionals, targetCategory);
+          const matchedProf = matchMilitaryName(cleanMilitaryName, activeProfessionals, targetCategory);
 
           if (matchedProf) {
             scaleChanges[matchedProf.id] = scaleChanges[matchedProf.id] || {};
@@ -1471,7 +1566,7 @@ export default function App() {
   // Reorder military professionals
   const handleMoveProfessional = (id: string, direction: 'up' | 'down') => {
     // Get all professionals of the active category sorted by order
-    const categoryProfs = professionals
+    const categoryProfs = activeProfessionals
       .filter(p => p.category === activeScale)
       .sort((a, b) => {
         const orderA = a.sort_order ?? 0;
@@ -1515,6 +1610,9 @@ export default function App() {
     setEditSpecialty(p.specialty || "");
     setEditName(p.name);
     setEditCategory(p.category);
+    setEditType("definitive");
+    setEditMonth(selectedMonth);
+    setEditYear(selectedYear);
     setIsEditModalOpen(true);
   };
 
@@ -1530,57 +1628,169 @@ export default function App() {
       return;
     }
 
-    setProfessionals((prev) =>
-      prev.map((p) =>
-        p.id === editingProfId
-          ? {
-              ...p,
-              name: editName.trim(),
-              rank: editRank.trim(),
-              specialty: editSpecialty.trim(),
-              category: editCategory,
-              role: `${editRank.trim()}:::${editSpecialty.trim()}:::${p.sort_order || 0}`,
+    const p = professionals.find(prof => prof.id === editingProfId);
+    if (!p) return;
+
+    if (editType === "definitive") {
+      // Definitive edit: update all details globally and keep same validity
+      setProfessionals((prev) =>
+        prev.map((prof) =>
+          prof.id === editingProfId
+            ? {
+                ...prof,
+                name: editName.trim(),
+                rank: editRank.trim(),
+                specialty: editSpecialty.trim(),
+                category: editCategory,
+              }
+            : prof
+        )
+      );
+    } else {
+      // "A partir de Mês" edit
+      const prev = getPreviousMonthAndYear(editMonth, editYear);
+      const hasPreviousSpan = p.valid_from_year === undefined || 
+                              p.valid_from_month === undefined || 
+                              !isMonthYearAtOrAfter(p.valid_from_month, p.valid_from_year, editMonth, editYear);
+
+      if (hasPreviousSpan) {
+        // Clone for historical span
+        const historicalId = `${p.id}_hist_${Date.now()}`;
+        const historicalClone: Professional = {
+          ...p,
+          id: historicalId,
+          valid_until_month: prev.month,
+          valid_until_year: prev.year,
+        };
+
+        const updatedOriginal: Professional = {
+          ...p,
+          name: editName.trim(),
+          rank: editRank.trim(),
+          specialty: editSpecialty.trim(),
+          category: editCategory,
+          valid_from_month: editMonth,
+          valid_from_year: editYear,
+        };
+
+        setProfessionals((prevProfs) => {
+          return prevProfs.flatMap((prof) => {
+            if (prof.id === editingProfId) {
+              return [historicalClone, updatedOriginal];
             }
-          : p
-      )
-    );
+            return [prof];
+          });
+        });
+      } else {
+        // Just update in-place
+        setProfessionals((prevProfs) =>
+          prevProfs.map((prof) =>
+            prof.id === editingProfId
+              ? {
+                  ...prof,
+                  name: editName.trim(),
+                  rank: editRank.trim(),
+                  specialty: editSpecialty.trim(),
+                  category: editCategory,
+                  valid_from_month: editMonth,
+                  valid_from_year: editYear,
+                }
+              : prof
+          )
+        );
+      }
+    }
 
     setIsEditModalOpen(false);
     setIsDirty(true);
     triggerNotification("success", "Militar atualizado com sucesso.");
   };
 
-  // Delete a military
-  const handleDeleteProfessional = async (id: string, name: string) => {
-    setConfirmDialog({
-      isOpen: true,
-      title: "Excluir Militar",
-      message: `Tem certeza de que deseja excluir o militar ${name}? Todos os seus lançamentos também serão apagados.`,
-      onConfirm: async () => {
-        try {
-          setProfessionals((prev) => prev.filter((p) => p.id !== id));
-          setCellState((prev) => {
-            const copy = { ...prev };
-            delete copy[id];
-            return copy;
-          });
-          setIsDirty(true);
+  // Open Custom Delete Military Modal
+  const handleOpenDeleteModal = (id: string, name: string) => {
+    setDeletingProfId(id);
+    setDeletingProfName(name);
+    setDeleteType("definitive");
+    setDeleteMonth(selectedMonth);
+    setDeleteYear(selectedYear);
+    setIsDeleteMilitaryModalOpen(true);
+  };
 
-          if (clientSupabase) {
-            await (clientSupabase as any).from("military_professionals").delete().eq("id", id);
-          } else if (supabaseConfigured) {
-            await fetch(`/api/military/${id}`, { method: "DELETE" }).catch(() => {});
+  // Confirm Delete Military
+  const handleConfirmDeleteProfessional = async () => {
+    const id = deletingProfId;
+    const name = deletingProfName;
+    try {
+      if (deleteType === "definitive") {
+        // Remove globally
+        setProfessionals((prev) => prev.filter((p) => p.id !== id));
+        setCellState((prev) => {
+          const copy = { ...prev };
+          delete copy[id];
+          return copy;
+        });
+
+        if (clientSupabase) {
+          await (clientSupabase as any).from("military_professionals").delete().eq("id", id);
+        } else if (supabaseConfigured) {
+          await fetch(`/api/military/${id}`, { method: "DELETE" }).catch(() => {});
+        }
+        triggerNotification("info", `Militar ${name} foi excluído definitivamente.`);
+      } else {
+        // "A partir de Mês" deletion
+        const prev = getPreviousMonthAndYear(deleteMonth, deleteYear);
+        
+        // Find the professional
+        const p = professionals.find(prof => prof.id === id);
+        if (p) {
+          // Check if they had a previous span before the starting delete month
+          const hasPreviousSpan = p.valid_from_year === undefined || 
+                                  p.valid_from_month === undefined || 
+                                  !isMonthYearAtOrAfter(p.valid_from_month, p.valid_from_year, deleteMonth, deleteYear);
+          
+          if (hasPreviousSpan) {
+            // Set valid_until to previous month
+            setProfessionals((prevProfs) =>
+              prevProfs.map((prof) =>
+                prof.id === id
+                  ? {
+                      ...prof,
+                      valid_until_month: prev.month,
+                      valid_until_year: prev.year,
+                    }
+                  : prof
+              )
+            );
+          } else {
+            // If they did not exist before the delete month anyway, remove them completely!
+            setProfessionals((prevProfs) => prevProfs.filter((prof) => prof.id !== id));
+            
+            if (clientSupabase) {
+              await (clientSupabase as any).from("military_professionals").delete().eq("id", id);
+            } else if (supabaseConfigured) {
+              await fetch(`/api/military/${id}`, { method: "DELETE" }).catch(() => {});
+            }
+          }
+
+          // If the loaded month is at or after the deletion start month, clear their cells
+          if (isMonthYearAtOrAfter(selectedMonth, selectedYear, deleteMonth, deleteYear)) {
+            setCellState((prevCells) => {
+              const copy = { ...prevCells };
+              delete copy[id];
+              return copy;
+            });
           }
           
-          triggerNotification("info", `Militar ${name} foi excluído.`);
-        } catch (err) {
-          console.error("Erro ao excluir militar:", err);
-          triggerNotification("error", "Ocorreu um erro ao excluir o militar.");
-        } finally {
-          setConfirmDialog(null);
+          triggerNotification("info", `Militar ${name} foi excluído a partir de ${MONTHS[deleteMonth].label}/${deleteYear}.`);
         }
       }
-    });
+      setIsDirty(true);
+    } catch (err) {
+      console.error("Erro ao excluir militar:", err);
+      triggerNotification("error", "Ocorreu um erro ao excluir o militar.");
+    } finally {
+      setIsDeleteMilitaryModalOpen(false);
+    }
   };
 
   // Cell Edit Actions
@@ -1589,6 +1799,10 @@ export default function App() {
     setQuickEditValue(cellState[profId]?.[day] || "");
     setIsLaunchingIndisp(false);
     setIndispEndDay(day);
+    setIsLaunchingParecer(false);
+    setParecerEndDay(day);
+    setIsLaunchingExpediente(false);
+    setExpedienteEndDay(day);
   };
 
   const handleCellSave = (profId: string, day: number, value: string) => {
@@ -1656,6 +1870,108 @@ export default function App() {
     setEditingCell(null);
     setIsDirty(true);
     triggerNotification("success", "Indisponibilidade limpa com sucesso!");
+  };
+
+  const handleLaunchParecer = (profId: string, startDay: number, endDay: number) => {
+    if (endDay < startDay) {
+      triggerNotification("error", "O dia final não pode ser anterior ao dia inicial.");
+      return;
+    }
+    setCellState((prev) => {
+      const updatedProfCells = { ...(prev[profId] || {}) };
+      for (let d = startDay; d <= endDay; d++) {
+        updatedProfCells[d] = "PARECER";
+      }
+      return {
+        ...prev,
+        [profId]: updatedProfCells,
+      };
+    });
+    setEditingCell(null);
+    setIsDirty(true);
+    triggerNotification("success", "Aguardando parecer externo lançado com sucesso!");
+  };
+
+  const handleClearParecer = (profId: string, clickedDay: number) => {
+    setCellState((prev) => {
+      const profCells = prev[profId] || {};
+      const updatedProfCells = { ...profCells };
+      
+      updatedProfCells[clickedDay] = "";
+      
+      // Go left
+      let d = clickedDay - 1;
+      while (d >= 1 && profCells[d] === "PARECER") {
+        updatedProfCells[d] = "";
+        d--;
+      }
+      
+      // Go right
+      d = clickedDay + 1;
+      while (d <= daysInMonth && profCells[d] === "PARECER") {
+        updatedProfCells[d] = "";
+        d++;
+      }
+      
+      return {
+        ...prev,
+        [profId]: updatedProfCells,
+      };
+    });
+    setEditingCell(null);
+    setIsDirty(true);
+    triggerNotification("success", "Aguardando parecer externo limpo com sucesso!");
+  };
+
+  const handleLaunchExpediente = (profId: string, startDay: number, endDay: number) => {
+    if (endDay < startDay) {
+      triggerNotification("error", "O dia final não pode ser anterior ao dia inicial.");
+      return;
+    }
+    setCellState((prev) => {
+      const updatedProfCells = { ...(prev[profId] || {}) };
+      for (let d = startDay; d <= endDay; d++) {
+        updatedProfCells[d] = "EXPEDIENTE";
+      }
+      return {
+        ...prev,
+        [profId]: updatedProfCells,
+      };
+    });
+    setEditingCell(null);
+    setIsDirty(true);
+    triggerNotification("success", "Expediente administrativo lançado com sucesso!");
+  };
+
+  const handleClearExpediente = (profId: string, clickedDay: number) => {
+    setCellState((prev) => {
+      const profCells = prev[profId] || {};
+      const updatedProfCells = { ...profCells };
+      
+      updatedProfCells[clickedDay] = "";
+      
+      // Go left
+      let d = clickedDay - 1;
+      while (d >= 1 && profCells[d] === "EXPEDIENTE") {
+        updatedProfCells[d] = "";
+        d--;
+      }
+      
+      // Go right
+      d = clickedDay + 1;
+      while (d <= daysInMonth && profCells[d] === "EXPEDIENTE") {
+        updatedProfCells[d] = "";
+        d++;
+      }
+      
+      return {
+        ...prev,
+        [profId]: updatedProfCells,
+      };
+    });
+    setEditingCell(null);
+    setIsDirty(true);
+    triggerNotification("success", "Expediente administrativo limpo com sucesso!");
   };
 
   // Export to CSV
@@ -2021,6 +2337,71 @@ export default function App() {
                     <option value="SOLDADOS">Soldados</option>
                   </select>
                 </div>
+
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                    Vigência da Alteração <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-[10px] font-bold uppercase transition-all ${
+                      editType === "definitive" ? "border-indigo-500 bg-indigo-50/40 text-indigo-900 font-extrabold" : "border-slate-200 bg-white text-slate-700"
+                    }`}>
+                      <input
+                        type="radio"
+                        name="editType"
+                        value="definitive"
+                        checked={editType === "definitive"}
+                        onChange={() => setEditType("definitive")}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Definitiva (Todos)
+                    </label>
+                    <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-[10px] font-bold uppercase transition-all ${
+                      editType === "specific_month" ? "border-indigo-500 bg-indigo-50/40 text-indigo-900 font-extrabold" : "border-slate-200 bg-white text-slate-700"
+                    }`}>
+                      <input
+                        type="radio"
+                        name="editType"
+                        value="specific_month"
+                        checked={editType === "specific_month"}
+                        onChange={() => setEditType("specific_month")}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      A partir de Mês
+                    </label>
+                  </div>
+                  
+                  {editType === "specific_month" && (
+                    <div className="grid grid-cols-2 gap-2 p-2.5 bg-slate-50 border border-slate-150 rounded animate-in fade-in slide-in-from-top-1 duration-150">
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">Mês</label>
+                        <select
+                          value={editMonth}
+                          onChange={(e) => setEditMonth(parseInt(e.target.value, 10))}
+                          className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold uppercase text-slate-800 focus:outline-hidden focus:border-indigo-500"
+                        >
+                          {MONTHS.map((m) => (
+                            <option key={m.value} value={m.value}>{m.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">Ano</label>
+                        <select
+                          value={editYear}
+                          onChange={(e) => setEditYear(parseInt(e.target.value, 10))}
+                          className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold uppercase text-slate-800 focus:outline-hidden focus:border-indigo-500"
+                        >
+                          {[-1, 0, 1].map((offset) => {
+                            const yr = selectedYear + offset;
+                            return <option key={yr} value={yr}>{yr}</option>;
+                          })}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <button
                     type="button"
@@ -2037,6 +2418,110 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Military Popup Modal */}
+      {isDeleteMilitaryModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
+                <Trash2 className="w-4 h-4 text-rose-500" />
+                Excluir Militar
+              </h3>
+              <p className="text-xs text-slate-600 font-medium mb-4 mt-2 leading-relaxed">
+                Tem certeza de que deseja excluir o militar <span className="font-bold text-slate-900">{deletingProfName}</span>?
+              </p>
+
+              <div className="space-y-3">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  Tipo de Exclusão <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-[10px] font-bold uppercase transition-all ${
+                    deleteType === "definitive" ? "border-rose-500 bg-rose-50/40 text-rose-900 font-extrabold" : "border-slate-200 bg-white text-slate-700"
+                  }`}>
+                    <input
+                      type="radio"
+                      name="deleteType"
+                      value="definitive"
+                      checked={deleteType === "definitive"}
+                      onChange={() => setDeleteType("definitive")}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    Definitiva (Todos)
+                  </label>
+                  <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-[10px] font-bold uppercase transition-all ${
+                    deleteType === "specific_month" ? "border-rose-500 bg-rose-50/40 text-rose-900 font-extrabold" : "border-slate-200 bg-white text-slate-700"
+                  }`}>
+                    <input
+                      type="radio"
+                      name="deleteType"
+                      value="specific_month"
+                      checked={deleteType === "specific_month"}
+                      onChange={() => setDeleteType("specific_month")}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    A partir de Mês
+                  </label>
+                </div>
+
+                {deleteType === "specific_month" && (
+                  <div className="grid grid-cols-2 gap-2 p-2.5 bg-slate-50 border border-slate-150 rounded animate-in fade-in slide-in-from-top-1 duration-150">
+                    <div>
+                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">Mês</label>
+                      <select
+                        value={deleteMonth}
+                        onChange={(e) => setDeleteMonth(parseInt(e.target.value, 10))}
+                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold uppercase text-slate-800 focus:outline-hidden focus:border-rose-500"
+                      >
+                        {MONTHS.map((m) => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">Ano</label>
+                      <select
+                        value={deleteYear}
+                        onChange={(e) => setDeleteYear(parseInt(e.target.value, 10))}
+                        className="w-full bg-white border border-slate-200 rounded px-2 py-1 text-xs font-bold uppercase text-slate-800 focus:outline-hidden focus:border-rose-500"
+                      >
+                        {[-1, 0, 1].map((offset) => {
+                          const yr = selectedYear + offset;
+                          return <option key={yr} value={yr}>{yr}</option>;
+                        })}
+                      </select>
+                    </div>
+                  </div>
+                )}
+                
+                <p className="text-[10px] text-slate-400 italic">
+                  {deleteType === "definitive" 
+                    ? "Esta ação removerá o militar e todas as suas escalas de todos os meses de forma definitiva." 
+                    : `Esta ação manterá o militar e suas escalas nos meses anteriores a ${MONTHS[deleteMonth]?.label} de ${deleteYear}, mas o excluirá desse período em diante.`}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-5 mt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteMilitaryModalOpen(false)}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteProfessional}
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded shadow-xs transition-all hover:shadow-md cursor-pointer"
+                >
+                  Confirmar Exclusão
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2631,7 +3116,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
                               <button
-                                onClick={() => handleDeleteProfessional(prof.id, prof.name)}
+                                onClick={() => handleOpenDeleteModal(prof.id, prof.name)}
                                 className="text-slate-400 hover:text-rose-600 p-0.5 transition-colors cursor-pointer"
                                 title="Excluir militar"
                               >
@@ -2645,6 +3130,8 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                             const cellValue = cellState[prof.id]?.[dayObj.day] || "";
                             const isEditing = editingCell?.profId === prof.id && editingCell?.day === dayObj.day;
                             const isIndisp = cellValue === "INDISP";
+                            const isParecer = cellValue === "PARECER";
+                            const isExpediente = cellValue === "EXPEDIENTE";
 
                             // Mapping 9 service background colors (text is handled dynamically)
                             const serviceColors: { [key: string]: string } = {
@@ -2663,12 +3150,20 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                             const isFilled = cellValue && cellValue.trim() !== "";
                             const bgClass = isIndisp 
                               ? "bg-red-600 hover:bg-red-700 animate-fade-in"
+                              : isParecer
+                              ? "bg-orange-400 hover:bg-orange-500 animate-fade-in"
+                              : isExpediente
+                              ? "bg-yellow-400 hover:bg-yellow-500 animate-fade-in"
                               : (isFilled 
                                   ? (serviceColors[cellValue.toUpperCase()] || "bg-slate-100 hover:bg-slate-200") 
                                   : "hover:bg-slate-100/50");
 
                             const textClass = isIndisp 
                               ? "text-white" 
+                              : isParecer
+                              ? "text-white"
+                              : isExpediente
+                              ? "text-slate-900"
                               : (isFilled 
                                   ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
                                   : "text-slate-300");
@@ -2686,7 +3181,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                 {isEditing ? (
                                   <div className="relative min-h-[26px]" onClick={(e) => e.stopPropagation()}>
                                     {/* Absolute container that floats over the cell and doesn't affect cell width */}
-                                    <div className="absolute z-50 left-1/2 -translate-x-1/2 top-full mt-1 bg-white border border-slate-200 rounded-md shadow-xl p-2 w-56 flex flex-col gap-1.5 text-slate-800 text-left">
+                                    <div className="absolute z-50 left-1/2 -translate-x-1/2 top-full mt-1 bg-white border border-slate-200 rounded-md shadow-xl p-2 w-60 flex flex-col gap-1.5 text-slate-800 text-left">
                                       <div className="flex items-center justify-between border-b border-slate-100 pb-1 mb-0.5">
                                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Dia {dayObj.day.toString().padStart(2, "0")}</span>
                                         <button 
@@ -2734,6 +3229,80 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                             </button>
                                           </div>
                                         </div>
+                                      ) : isLaunchingParecer ? (
+                                        <div className="flex flex-col gap-1.5 bg-slate-50 p-1.5 rounded border border-slate-100 text-slate-800">
+                                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                                            Lançar Aguardando Parecer Externo
+                                          </div>
+                                          <div className="text-[9px] text-slate-500 font-medium">
+                                            Selecione o dia final (de {dayObj.day} até {daysInMonth}):
+                                          </div>
+                                          <select
+                                            value={parecerEndDay}
+                                            onChange={(e) => setParecerEndDay(Number(e.target.value))}
+                                            className="w-full bg-white border border-slate-300 rounded p-1 text-[11px] font-bold focus:outline-hidden"
+                                          >
+                                            {Array.from({ length: daysInMonth - dayObj.day + 1 }, (_, idx) => {
+                                              const dNum = dayObj.day + idx;
+                                              return (
+                                                <option key={dNum} value={dNum}>
+                                                  Dia {dNum.toString().padStart(2, "0")}
+                                                </option>
+                                              );
+                                            })}
+                                          </select>
+                                          <div className="flex gap-1.5 mt-1">
+                                            <button
+                                              onMouseDown={() => handleLaunchParecer(prof.id, dayObj.day, parecerEndDay)}
+                                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] py-1 rounded uppercase tracking-wider transition-colors cursor-pointer text-center"
+                                            >
+                                              Confirmar
+                                            </button>
+                                            <button
+                                              onMouseDown={() => setIsLaunchingParecer(false)}
+                                              className="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 font-bold text-[10px] py-1 rounded uppercase tracking-wider transition-colors cursor-pointer text-center"
+                                            >
+                                              Voltar
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : isLaunchingExpediente ? (
+                                        <div className="flex flex-col gap-1.5 bg-slate-50 p-1.5 rounded border border-slate-100 text-slate-800">
+                                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                                            Lançar Expediente Admin.
+                                          </div>
+                                          <div className="text-[9px] text-slate-500 font-medium">
+                                            Selecione o dia final (de {dayObj.day} até {daysInMonth}):
+                                          </div>
+                                          <select
+                                            value={expedienteEndDay}
+                                            onChange={(e) => setExpedienteEndDay(Number(e.target.value))}
+                                            className="w-full bg-white border border-slate-300 rounded p-1 text-[11px] font-bold focus:outline-hidden"
+                                          >
+                                            {Array.from({ length: daysInMonth - dayObj.day + 1 }, (_, idx) => {
+                                              const dNum = dayObj.day + idx;
+                                              return (
+                                                <option key={dNum} value={dNum}>
+                                                  Dia {dNum.toString().padStart(2, "0")}
+                                                </option>
+                                              );
+                                            })}
+                                          </select>
+                                          <div className="flex gap-1.5 mt-1">
+                                            <button
+                                              onMouseDown={() => handleLaunchExpediente(prof.id, dayObj.day, expedienteEndDay)}
+                                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] py-1 rounded uppercase tracking-wider transition-colors cursor-pointer text-center"
+                                            >
+                                              Confirmar
+                                            </button>
+                                            <button
+                                              onMouseDown={() => setIsLaunchingExpediente(false)}
+                                              className="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 font-bold text-[10px] py-1 rounded uppercase tracking-wider transition-colors cursor-pointer text-center"
+                                            >
+                                              Voltar
+                                            </button>
+                                          </div>
+                                        </div>
                                       ) : (
                                         <>
                                           <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
@@ -2758,7 +3327,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                           {isIndisp ? (
                                             <button
                                               onMouseDown={() => handleClearIndisponibilidade(prof.id, dayObj.day)}
-                                              className="px-1.5 py-1.5 bg-amber-50 hover:bg-amber-600 hover:text-white rounded-sm text-[10px] text-amber-700 font-bold transition-colors w-full text-center cursor-pointer border border-amber-200 uppercase tracking-wider"
+                                              className="px-1.5 py-1.5 bg-red-50 hover:bg-red-600 hover:text-white rounded-sm text-[10px] text-red-700 font-bold transition-colors w-full text-center cursor-pointer border border-red-200 uppercase tracking-wider"
                                             >
                                               Limpar Indisponibilidade
                                             </button>
@@ -2771,6 +3340,46 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                               className="px-1.5 py-1.5 bg-red-50 hover:bg-red-600 hover:text-white text-red-700 rounded-sm text-[10px] font-bold transition-colors w-full text-center cursor-pointer border border-red-200 uppercase tracking-wider"
                                             >
                                               Lançar Indisponibilidade
+                                            </button>
+                                          )}
+
+                                          {/* Parecer Externo Button */}
+                                          {isParecer ? (
+                                            <button
+                                              onMouseDown={() => handleClearParecer(prof.id, dayObj.day)}
+                                              className="px-1.5 py-1.5 bg-orange-50 hover:bg-orange-400 hover:text-white rounded-sm text-[10px] text-orange-600 font-bold transition-colors w-full text-center cursor-pointer border border-orange-200 uppercase tracking-wider"
+                                            >
+                                              Limpar Parecer Externo
+                                            </button>
+                                          ) : (
+                                            <button
+                                              onMouseDown={() => {
+                                                setIsLaunchingParecer(true);
+                                                setParecerEndDay(dayObj.day);
+                                              }}
+                                              className="px-1.5 py-1.5 bg-orange-50 hover:bg-orange-400 hover:text-white text-orange-600 rounded-sm text-[10px] font-bold transition-colors w-full text-center cursor-pointer border border-orange-200 uppercase tracking-wider"
+                                            >
+                                              Aguardando Parecer Externo
+                                            </button>
+                                          )}
+
+                                          {/* Expediente Administrativo Button */}
+                                          {isExpediente ? (
+                                            <button
+                                              onMouseDown={() => handleClearExpediente(prof.id, dayObj.day)}
+                                              className="px-1.5 py-1.5 bg-yellow-50 hover:bg-yellow-600 hover:text-white rounded-sm text-[10px] text-yellow-700 font-bold transition-colors w-full text-center cursor-pointer border border-yellow-200 uppercase tracking-wider"
+                                            >
+                                              Limpar Expediente Admin.
+                                            </button>
+                                          ) : (
+                                            <button
+                                              onMouseDown={() => {
+                                                setIsLaunchingExpediente(true);
+                                                setExpedienteEndDay(dayObj.day);
+                                              }}
+                                              className="px-1.5 py-1.5 bg-yellow-50 hover:bg-yellow-600 hover:text-white text-yellow-700 rounded-sm text-[10px] font-bold transition-colors w-full text-center cursor-pointer border border-yellow-200 uppercase tracking-wider"
+                                            >
+                                              Expediente Administrativo
                                             </button>
                                           )}
                                           
@@ -2787,7 +3396,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                   </div>
                                 ) : (
                                   <div className="min-h-[26px] flex items-center justify-center">
-                                    {isIndisp ? "" : (cellValue || "-")}
+                                    {isIndisp || isParecer || isExpediente ? "" : (cellValue || "-")}
                                   </div>
                                 )}
                               </td>
@@ -2918,9 +3527,13 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                               {daysArray.map((dayObj) => {
                                 const val = cellState[prof.id]?.[dayObj.day] || "";
                                 const isIndisp = val === "INDISP";
+                                const isParecer = val === "PARECER";
+                                const isExpediente = val === "EXPEDIENTE";
                                 const hasVal = val && val.trim() !== "";
-                                const printTextClass = isIndisp 
+                                const printTextClass = (isIndisp || isParecer) 
                                   ? "text-white" 
+                                  : isExpediente
+                                  ? "text-slate-900"
                                   : (hasVal 
                                       ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
                                       : "text-slate-300");
@@ -2930,10 +3543,12 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                     key={dayObj.day} 
                                     className={`p-1 text-center font-mono font-bold border-r border-slate-200 ${
                                       isIndisp ? "bg-red-600 font-black" :
+                                      isParecer ? "bg-orange-400 font-black" :
+                                      isExpediente ? "bg-yellow-400 font-black" :
                                       dayObj.isWeekend ? "bg-amber-50/10" : ""
                                     } ${printTextClass}`}
                                   >
-                                    {isIndisp ? "" : (val || "-")}
+                                    {isIndisp || isParecer || isExpediente ? "" : (val || "-")}
                                   </td>
                                 );
                               })}
@@ -2954,6 +3569,9 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                         </span>
                       ))}
                       <span><b>-</b>: Sem serviço</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-red-600"></span> <b>INDISP</b>: Indisponibilidade</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-orange-400"></span> <b>PARECER</b>: Aguardando Parecer Externo</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-yellow-400"></span> <b>EXPEDIENTE</b>: Expediente Administrativo</span>
                     </div>
 
                     <div className="text-right mt-1">
@@ -3060,9 +3678,13 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                               {daysArray.map((dayObj) => {
                                 const val = cellState[prof.id]?.[dayObj.day] || "";
                                 const isIndisp = val === "INDISP";
+                                const isParecer = val === "PARECER";
+                                const isExpediente = val === "EXPEDIENTE";
                                 const hasVal = val && val.trim() !== "";
-                                const printTextClass = isIndisp 
+                                const printTextClass = (isIndisp || isParecer) 
                                   ? "text-white" 
+                                  : isExpediente
+                                  ? "text-slate-900"
                                   : (hasVal 
                                       ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
                                       : "text-slate-300");
@@ -3072,10 +3694,12 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                     key={dayObj.day} 
                                     className={`p-1 text-center font-mono font-bold border-r border-slate-200 ${
                                       isIndisp ? "bg-red-600 font-black" :
+                                      isParecer ? "bg-orange-400 font-black" :
+                                      isExpediente ? "bg-yellow-400 font-black" :
                                       dayObj.isWeekend ? "bg-amber-50/10" : ""
                                     } ${printTextClass}`}
                                   >
-                                    {isIndisp ? "" : (val || "-")}
+                                    {isIndisp || isParecer || isExpediente ? "" : (val || "-")}
                                   </td>
                                 );
                               })}
@@ -3096,6 +3720,9 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                         </span>
                       ))}
                       <span><b>-</b>: Sem serviço</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-red-600"></span> <b>INDISP</b>: Indisponibilidade</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-orange-400"></span> <b>PARECER</b>: Aguardando Parecer Externo</span>
+                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-yellow-400"></span> <b>EXPEDIENTE</b>: Expediente Administrativo</span>
                     </div>
 
                     <div className="text-right mt-1">
