@@ -15,6 +15,10 @@
 
 /* Custom styles for printing */
 @media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   html, body, #root, .min-h-screen, main, .overflow-y-auto, .overflow-hidden {
     overflow: visible !important;
     height: auto !important;
@@ -48,3 +52,34 @@
     display: table-header-group;
   }
 }
+
+/* Ensure Arial font and bold styling in both screen preview and print output */
+.print-area, .print-area * {
+  font-family: Arial, Helvetica, sans-serif !important;
+  font-weight: bold !important;
+}
+
+/* Specific custom typography sizes requested by user */
+.print-title, .print-title * {
+  font-size: 16px !important;
+}
+
+.print-subtitle, .print-subtitle * {
+  font-size: 13px !important;
+}
+
+.print-table,
+.print-table * {
+  font-size: 11px !important;
+}
+
+.print-legend,
+.print-legend * {
+  font-size: 10px !important;
+}
+
+.print-signatures,
+.print-signatures * {
+  font-size: 10px !important;
+}
+

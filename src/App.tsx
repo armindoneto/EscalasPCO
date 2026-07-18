@@ -3781,7 +3781,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                   </div>
                   <div>
                     <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Visualização de Impressão do Relatório Consolidado
+                      Visualização de Impressão da Escala
                     </h3>
                   </div>
                 </div>
@@ -3808,79 +3808,118 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 {/* SHEET 1: GRADUADOS */}
                 {activeScale === "GRADUADOS" && (
                   <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black">
-                  {/* Official Document Header */}
-                  <div className="border-b-4 border-slate-900 pb-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-10 h-10 object-contain" referrerPolicy="no-referrer" />
-                      <div>
-                        <h2 className="text-lg font-black font-display tracking-tight text-slate-900 uppercase">
-                          Escala de Serviço Consolidada de Graduados
-                        </h2>
-                        <div className="text-xs text-slate-500 font-bold flex gap-4 mt-0.5">
-                          <span>PERÍODO: {MONTHS[selectedMonth].label.toUpperCase()} DE {selectedYear}</span>
+                  
+                  {/* Official Document Header with Legend */}
+                  <div className="flex items-center gap-10">
+                    <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[150px] h-[150px] object-contain shrink-0" referrerPolicy="no-referrer" />
+                    <div className="flex-1 flex flex-col">
+                      <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
+                        DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
+                      </h2>
+                      <h3 className="print-subtitle uppercase text-center font-bold text-black mt-1" style={{ fontSize: '13px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
+                        ESCALA DE SERVIÇO DE SEGURANÇA E DEFESA, TÉCNICO DE DIA, OPERADOR DE KF E MOTORISTA DE COLETIVO
+                      </h3>
+                      
+                      {/* Sub-row for Legendas label and Month Year */}
+                      <div className="flex justify-between items-end mt-3 px-1">
+                        <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                          Legendas:
+                        </span>
+                        <span className="font-bold text-black uppercase text-center flex-1 pr-12" style={{ fontSize: '13px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                          {MONTHS[selectedMonth].label.toUpperCase()} - {selectedYear}
+                        </span>
+                      </div>
+
+                      {/* Color blocks row */}
+                      <div className="flex justify-between gap-2 mt-2 px-1">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-8 h-3.5 border border-black bg-red-600 shrink-0"></div>
+                          <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            Dispensas Regulamentares
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-8 h-3.5 border border-black bg-orange-400 shrink-0"></div>
+                          <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            Aguardando Parecer Externo
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-8 h-3.5 border border-black bg-yellow-400 shrink-0"></div>
+                          <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            Expediente Administrativo ou Acompanhamento Técnico
+                          </span>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider block text-slate-400">Data de Geração</span>
-                      <span className="text-xs font-mono font-bold">{new Date().toLocaleDateString("pt-BR")}</span>
-                    </div>
-                  </div>
-
-                  {/* Official Info Blocks */}
-                  <div className="grid grid-cols-4 gap-4 bg-slate-50 p-3 rounded-sm text-xs font-medium border border-slate-200">
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Gestor Responsável</span>
-                      <span className="font-bold text-slate-800">Coordenação de Escalas</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Efetivo de Graduados</span>
-                      <span className="font-bold text-indigo-700">{professionals.filter(p => p.category === 'GRADUADOS').length} Militares</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Mês/Ano</span>
-                      <span className="font-bold text-slate-800">{MONTHS[selectedMonth].label.toUpperCase()} DE {selectedYear}</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Status</span>
-                      <span className="font-bold text-emerald-700 uppercase flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> Escala Homologada
-                      </span>
+                      {/* Service Abbreviations row */}
+                      <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-2.5 px-1 pt-1.5">
+                        <div>
+                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            SD – SEGURANÇA E DEFESA
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            KF – OPERADOR DE KF
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            MC – MOTORISTA DE COLETIVO
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            TD – TÉCNICO DE DIA
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            AC – ACUMULANDO SEGURANÇA E DEFESA E TÉCNICO DE DIA
+                          </span>
+                        </div>
+                        <div>
+                          <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            * – SERVIÇO EXTRA
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   {/* Main Compact Table */}
-                  <div className="border border-slate-300 rounded-sm overflow-hidden">
-                    <table className="w-full text-left border-collapse text-[10px]">
+                  <div className="border-[2.5px] border-black rounded-sm overflow-hidden">
+                    <table className="print-table w-full text-left border-collapse" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif' }}>
                       <thead>
-                        <tr className="bg-slate-200 text-slate-800 font-bold uppercase border-b border-slate-300">
-                          <th className="py-2 px-3 border-r border-slate-300 w-48">Militar (Graduado)</th>
+                        <tr className="text-slate-800 font-bold uppercase border-b border-black">
+                          <th className="py-1 px-1.5 border-r-[3.5px] border-r-black w-48 bg-black text-white font-bold uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>MILITARES</th>
                           {daysArray.map((dayObj) => (
                             <th 
                               key={dayObj.day} 
                               onClick={() => setSelectedDayForPopup(dayObj.day)}
                               title={`Ver militares de serviço no dia ${dayObj.day}`}
-                              className={`p-1 text-center font-mono border-r border-slate-300 min-w-[20px] cursor-pointer hover:bg-slate-300 hover:text-indigo-700 transition-colors ${
-                                dayObj.isWeekend ? "bg-amber-100 text-amber-800" : ""
+                              className={`p-0 text-center font-mono font-bold text-white border-r border-black min-w-[20px] cursor-pointer hover:opacity-80 transition-opacity ${
+                                dayObj.isWeekend ? "bg-[#990000]" : "bg-[#0b5394]"
                               }`}
+                              style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
                             >
                               {dayObj.day}
                             </th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-200">
+                      <tbody className="divide-y divide-black">
                         {sortedGraduados.length === 0 ? (
                           <tr>
-                            <td colSpan={daysInMonth + 1} className="py-8 text-center text-slate-400 font-bold">
+                            <td colSpan={daysInMonth + 1} className="py-8 text-center text-slate-400 font-bold" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif' }}>
                               Nenhum graduado cadastrado nesta escala. Carregue escalas para visualizar.
                             </td>
                           </tr>
                         ) : (
-                          sortedGraduados.map((prof) => (
-                            <tr key={prof.id} className="hover:bg-slate-50">
-                              <td className="py-1.5 px-3 font-semibold border-r border-slate-200 text-slate-900 whitespace-nowrap uppercase">
+                          sortedGraduados.map((prof, idx) => (
+                            <tr key={prof.id} className={`hover:opacity-90 ${idx % 2 === 0 ? "bg-white" : "bg-[#b7b7b7]"}`}>
+                              <td className="py-0.5 px-1.5 font-bold border-r-[3.5px] border-r-black text-slate-900 whitespace-nowrap uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                                 {prof.rank ? `${prof.rank} ` : ""}
                                 {prof.specialty ? `${prof.specialty} ` : ""}
                                 {prof.name}
@@ -3902,14 +3941,15 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                 return (
                                   <td 
                                     key={dayObj.day} 
-                                    className={`p-1 text-center font-mono font-bold border-r border-slate-200 ${
+                                    className={`p-0 text-center font-mono font-bold border-r border-black ${
                                       isIndisp ? "bg-red-600 font-black" :
                                       isParecer ? "bg-orange-400 font-black" :
                                       isExpediente ? "bg-yellow-400 font-black" :
                                       dayObj.isWeekend ? "bg-amber-50/10" : ""
                                     } ${printTextClass}`}
+                                    style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
                                   >
-                                    {isIndisp || isParecer || isExpediente ? "" : (val || "-")}
+                                    {isIndisp || isParecer || isExpediente ? "" : (val || "")}
                                   </td>
                                 );
                               })}
@@ -3920,36 +3960,18 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     </table>
                   </div>
 
-                  {/* Report Legenda */}
-                  <div className="flex flex-col gap-2 text-[9px] text-slate-500 border-t border-slate-200 pt-4">
-                    <div className="flex flex-wrap gap-x-4 gap-y-1">
-                      <span className="font-bold uppercase tracking-wider text-slate-700">Legenda de Serviços:</span>
-                      {SCALE_OPTIONS.map((opt) => (
-                        <span key={opt.code}>
-                          <b>{opt.code}</b>: {opt.label}
-                        </span>
-                      ))}
-                      <span><b>-</b>: Sem serviço</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-red-600"></span> <b>INDISP</b>: Indisponibilidade</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-orange-400"></span> <b>PARECER</b>: Aguardando Parecer Externo</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-yellow-400"></span> <b>EXPEDIENTE</b>: Expediente Administrativo</span>
-                    </div>
-
-                    <div className="text-right mt-1">
-                      <span>Documento de Graduados emitido automaticamente pelo Consolidador de Escalas de Serviço</span>
-                    </div>
-                  </div>
-
                   {/* Approval Signatures */}
                   {signers.length > 0 && (
-                    <div className="grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 border-t border-dashed border-slate-300 text-center">
+                    <div className="print-signatures grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 text-center">
                       {signers.map((signer) => (
                         <div key={signer.id} className="flex flex-col items-center">
-                          <div className="w-64 border-b border-black mb-1.5 h-12"></div>
-                          {renderSignerText(signer)}
-                          <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+                          <div className="w-64 mb-1.5 h-12 border-b border-black"></div>
+                          <div className="text-black font-bold uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            {signer.fullName} {signer.rank ? `- ${signer.rank}` : ""}
+                          </div>
+                          <div className="text-black font-bold uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
                             {signer.role}
-                          </span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -3957,157 +3979,179 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 </div>
               )}
 
-                {/* SHEET 2: SOLDADOS */}
-                {activeScale === "SOLDADOS" && (
-                  <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black">
-                  {/* Official Document Header */}
-                  <div className="border-b-4 border-slate-900 pb-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-10 h-10 object-contain" referrerPolicy="no-referrer" />
-                      <div>
-                        <h2 className="text-lg font-black font-display tracking-tight text-slate-900 uppercase">
-                          Escala de Serviço Consolidada de Soldados
+                  {/* SHEET 2: SOLDADOS */}
+                  {activeScale === "SOLDADOS" && (
+                    <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black">
+                    
+                    {/* Official Document Header with Legend */}
+                    <div className="flex items-center gap-10">
+                      <img src="/pco.png" alt="DTCEA-PCO Logo" className="w-[150px] h-[150px] object-contain shrink-0" referrerPolicy="no-referrer" />
+                      <div className="flex-1 flex flex-col">
+                        <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
+                          DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
                         </h2>
-                        <div className="text-xs text-slate-500 font-bold flex gap-4 mt-0.5">
-                          <span>PERÍODO: {MONTHS[selectedMonth].label.toUpperCase()} DE {selectedYear}</span>
+                        <h3 className="print-subtitle uppercase text-center font-bold text-black mt-1" style={{ fontSize: '13px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
+                          ESCALA DE SERVIÇO DE SENTINELA, MOTORISTA DE DIA E PERMANÊNCIA A VILA MILITAR
+                        </h3>
+                        
+                        {/* Sub-row for Legendas label and Month Year */}
+                        <div className="flex justify-between items-end mt-3 px-1">
+                          <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            Legendas:
+                          </span>
+                          <span className="font-bold text-black uppercase text-center flex-1 pr-12" style={{ fontSize: '13px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                            {MONTHS[selectedMonth].label.toUpperCase()} - {selectedYear}
+                          </span>
+                        </div>
+
+                        {/* Color blocks row */}
+                        <div className="flex justify-between gap-2 mt-2 px-1">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-8 h-3.5 border border-black bg-red-600 shrink-0"></div>
+                            <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              Dispensas Regulamentares
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-8 h-3.5 border border-black bg-orange-400 shrink-0"></div>
+                            <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              Aguardando Parecer Externo
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-8 h-3.5 border border-black bg-yellow-400 shrink-0"></div>
+                            <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              Expediente Administrativo ou Acompanhamento Técnico
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Service Abbreviations row */}
+                        <div className="grid grid-cols-3 gap-x-4 gap-y-0.5 mt-2.5 px-1 pt-1.5">
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              ST – SENTINELA
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              PV – PERMANÊNCIA À VILA MILITAR
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              SM – SOBREAVISO DE MOTORISTA DE DIA
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              MD – MOTORISTA DE DIA
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              SS – SOBREAVISO DE SENTINELA E PERMANÊNCIA
+                            </span>
+                          </div>
+                          <div>
+                            <span className="font-bold text-black" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              * – SERVIÇO EXTRA
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-[9px] font-bold uppercase tracking-wider block text-slate-400">Data de Geração</span>
-                      <span className="text-xs font-mono font-bold">{new Date().toLocaleDateString("pt-BR")}</span>
-                    </div>
-                  </div>
-
-                  {/* Official Info Blocks */}
-                  <div className="grid grid-cols-4 gap-4 bg-slate-50 p-3 rounded-sm text-xs font-medium border border-slate-200">
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Gestor Responsável</span>
-                      <span className="font-bold text-slate-800">Coordenação de Escalas</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Efetivo de Soldados</span>
-                      <span className="font-bold text-indigo-700">{professionals.filter(p => p.category === 'SOLDADOS').length} Militares</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Mês/Ano</span>
-                      <span className="font-bold text-slate-800">{MONTHS[selectedMonth].label.toUpperCase()} DE {selectedYear}</span>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-slate-400 block font-bold uppercase">Status</span>
-                      <span className="font-bold text-emerald-700 uppercase flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> Escala Homologada
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Main Compact Table */}
-                  <div className="border border-slate-300 rounded-sm overflow-hidden">
-                    <table className="w-full text-left border-collapse text-[10px]">
-                      <thead>
-                        <tr className="bg-slate-200 text-slate-800 font-bold uppercase border-b border-slate-300">
-                          <th className="py-2 px-3 border-r border-slate-300 w-48">Militar (Soldado)</th>
-                          {daysArray.map((dayObj) => (
-                            <th 
-                              key={dayObj.day} 
-                              onClick={() => setSelectedDayForPopup(dayObj.day)}
-                              title={`Ver militares de serviço no dia ${dayObj.day}`}
-                              className={`p-1 text-center font-mono border-r border-slate-300 min-w-[20px] cursor-pointer hover:bg-slate-300 hover:text-indigo-700 transition-colors ${
-                                dayObj.isWeekend ? "bg-amber-100 text-amber-800" : ""
-                              }`}
-                            >
-                              {dayObj.day}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-200">
-                        {sortedSoldados.length === 0 ? (
-                          <tr>
-                            <td colSpan={daysInMonth + 1} className="py-8 text-center text-slate-400 font-bold">
-                              Nenhum soldado cadastrado nesta escala. Carregue escalas para visualizar.
-                            </td>
+                    {/* Main Compact Table */}
+                    <div className="border-[2.5px] border-black rounded-sm overflow-hidden">
+                      <table className="print-table w-full text-left border-collapse" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+                        <thead>
+                          <tr className="text-slate-800 font-bold uppercase border-b border-black">
+                            <th className="py-1 px-1.5 border-r-[3.5px] border-r-black w-48 bg-black text-white font-bold uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>MILITARES / CIVIS</th>
+                            {daysArray.map((dayObj) => (
+                              <th 
+                                key={dayObj.day} 
+                                onClick={() => setSelectedDayForPopup(dayObj.day)}
+                                title={`Ver militares de serviço no dia ${dayObj.day}`}
+                                className={`p-0 text-center font-mono font-bold text-white border-r border-black min-w-[20px] cursor-pointer hover:opacity-80 transition-opacity ${
+                                  dayObj.isWeekend ? "bg-[#990000]" : "bg-[#0b5394]"
+                                }`}
+                                style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
+                              >
+                                {dayObj.day}
+                              </th>
+                            ))}
                           </tr>
-                        ) : (
-                          sortedSoldados.map((prof) => (
-                            <tr key={prof.id} className="hover:bg-slate-50">
-                              <td className="py-1.5 px-3 font-semibold border-r border-slate-200 text-slate-900 whitespace-nowrap uppercase">
-                                {prof.rank ? `${prof.rank} ` : ""}
-                                {prof.specialty ? `${prof.specialty} ` : ""}
-                                {prof.name}
+                        </thead>
+                        <tbody className="divide-y divide-black">
+                          {sortedSoldados.length === 0 ? (
+                            <tr>
+                              <td colSpan={daysInMonth + 1} className="py-8 text-center text-slate-400 font-bold" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif' }}>
+                                Nenhum soldado cadastrado nesta escala. Carregue escalas para visualizar.
                               </td>
-                              {daysArray.map((dayObj) => {
-                                const val = cellState[prof.id]?.[dayObj.day] || "";
-                                const isIndisp = val === "INDISP";
-                                const isParecer = val === "PARECER";
-                                const isExpediente = val === "EXPEDIENTE";
-                                const hasVal = val && val.trim() !== "";
-                                const printTextClass = (isIndisp || isParecer) 
-                                  ? "text-white" 
-                                  : isExpediente
-                                  ? "text-slate-900"
-                                  : (hasVal 
-                                      ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
-                                      : "text-slate-300");
-
-                                return (
-                                  <td 
-                                    key={dayObj.day} 
-                                    className={`p-1 text-center font-mono font-bold border-r border-slate-200 ${
-                                      isIndisp ? "bg-red-600 font-black" :
-                                      isParecer ? "bg-orange-400 font-black" :
-                                      isExpediente ? "bg-yellow-400 font-black" :
-                                      dayObj.isWeekend ? "bg-amber-50/10" : ""
-                                    } ${printTextClass}`}
-                                  >
-                                    {isIndisp || isParecer || isExpediente ? "" : (val || "-")}
-                                  </td>
-                                );
-                              })}
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          ) : (
+                            sortedSoldados.map((prof, idx) => (
+                              <tr key={prof.id} className={`hover:opacity-90 ${idx % 2 === 0 ? "bg-white" : "bg-[#b7b7b7]"}`}>
+                                <td className="py-0.5 px-1.5 font-bold border-r-[3.5px] border-r-black text-slate-900 whitespace-nowrap uppercase" style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                                  {prof.rank ? `${prof.rank} ` : ""}
+                                  {prof.specialty ? `${prof.specialty} ` : ""}
+                                  {prof.name}
+                                </td>
+                                {daysArray.map((dayObj) => {
+                                  const val = cellState[prof.id]?.[dayObj.day] || "";
+                                  const isIndisp = val === "INDISP";
+                                  const isParecer = val === "PARECER";
+                                  const isExpediente = val === "EXPEDIENTE";
+                                  const hasVal = val && val.trim() !== "";
+                                  const printTextClass = (isIndisp || isParecer) 
+                                    ? "text-white" 
+                                    : isExpediente
+                                    ? "text-slate-900"
+                                    : (hasVal 
+                                        ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
+                                        : "text-slate-300");
+
+                                  return (
+                                    <td 
+                                      key={dayObj.day} 
+                                      className={`p-0 text-center font-mono font-bold border-r border-black ${
+                                        isIndisp ? "bg-red-600 font-black" :
+                                        isParecer ? "bg-orange-400 font-black" :
+                                        isExpediente ? "bg-yellow-400 font-black" :
+                                        dayObj.isWeekend ? "bg-amber-50/10" : ""
+                                      } ${printTextClass}`}
+                                      style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
+                                    >
+                                      {isIndisp || isParecer || isExpediente ? "" : (val || "")}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Approval Signatures */}
+                    {signers.length > 0 && (
+                      <div className="print-signatures grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 text-center">
+                        {signers.map((signer) => (
+                          <div key={signer.id} className="flex flex-col items-center">
+                            <div className="w-64 mb-1.5 h-12 border-b border-black"></div>
+                            <div className="text-black font-bold uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              {signer.fullName} {signer.rank ? `- ${signer.rank}` : ""}
+                            </div>
+                            <div className="text-black font-bold uppercase mt-1" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
+                              {signer.role}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-
-                  {/* Report Legenda */}
-                  <div className="flex flex-col gap-2 text-[9px] text-slate-500 border-t border-slate-200 pt-4">
-                    <div className="flex flex-wrap gap-x-4 gap-y-1">
-                      <span className="font-bold uppercase tracking-wider text-slate-700">Legenda de Serviços:</span>
-                      {SCALE_OPTIONS.map((opt) => (
-                        <span key={opt.code}>
-                          <b>{opt.code}</b>: {opt.label}
-                        </span>
-                      ))}
-                      <span><b>-</b>: Sem serviço</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-red-600"></span> <b>INDISP</b>: Indisponibilidade</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-orange-400"></span> <b>PARECER</b>: Aguardando Parecer Externo</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-xs bg-yellow-400"></span> <b>EXPEDIENTE</b>: Expediente Administrativo</span>
-                    </div>
-
-                    <div className="text-right mt-1">
-                      <span>Documento de Soldados emitido automaticamente pelo Consolidador de Escalas de Serviço</span>
-                    </div>
-                  </div>
-
-                  {/* Approval Signatures */}
-                  {signers.length > 0 && (
-                    <div className="grid grid-cols-3 gap-y-10 gap-x-8 mt-10 pt-6 border-t border-dashed border-slate-300 text-center">
-                      {signers.map((signer) => (
-                        <div key={signer.id} className="flex flex-col items-center">
-                          <div className="w-64 border-b border-black mb-1.5 h-12"></div>
-                          {renderSignerText(signer)}
-                          <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
-                            {signer.role}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
 
               </div>
             </div>
