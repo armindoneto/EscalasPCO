@@ -15,6 +15,13 @@
 
 /* Custom styles for printing */
 @media print {
+  html, body, #root, .min-h-screen, main, .overflow-y-auto, .overflow-hidden {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    position: static !important;
+  }
   body {
     background-color: white !important;
     color: black !important;

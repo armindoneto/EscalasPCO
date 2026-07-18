@@ -20,6 +20,9 @@ export interface Professional {
   name: string;
   role: string;
   category: 'GRADUADOS' | 'SOLDADOS';
+  rank?: string;
+  specialty?: string;
+  sort_order?: number;
 }
 
 export interface UploadSlot {

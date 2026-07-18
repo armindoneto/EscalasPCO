@@ -41,12 +41,24 @@ export function generateRandomName(): string {
     : `${firstName} ${lastName1}`;
 }
 
-export function generateMockScale(role: string, month: number, year: number): ParsedScale {
+export function generateMockScale(role: string, month: number, year: number, existingProfessionals?: Professional[]): ParsedScale {
   const numDays = new Date(year, month + 1, 0).getDate();
-  const numProfessionals = 4 + Math.floor(Math.random() * 5); // 4 to 8 professionals
   
-  const professionals = Array.from({ length: numProfessionals }).map(() => {
-    const name = generateRandomName();
+  let selectedNames: string[] = [];
+  if (existingProfessionals && existingProfessionals.length > 0) {
+    // Shuffle and select up to 5-7 registered professionals
+    const shuffled = [...existingProfessionals].sort(() => 0.5 - Math.random());
+    selectedNames = shuffled.slice(0, Math.min(6, shuffled.length)).map(p => {
+      const r = p.rank?.trim() || "";
+      const n = p.name?.trim() || "";
+      return r ? `${r} ${n}` : n;
+    });
+  } else {
+    const numProfessionals = 4 + Math.floor(Math.random() * 5); // 4 to 8 professionals
+    selectedNames = Array.from({ length: numProfessionals }).map(() => generateRandomName());
+  }
+  
+  const professionals = selectedNames.map((name) => {
     const days: { day: number; shift: string }[] = [];
     
     // Choose a schedule pattern: 
@@ -123,7 +135,8 @@ export function exportToCSV(
   }
 
   const rows = professionals.map((prof) => {
-    const row = [prof.name];
+    const displayName = prof.rank ? `${prof.rank} ${prof.name}` : prof.name;
+    const row = [displayName];
     for (let day = 1; day <= numDays; day++) {
       row.push(cellState[prof.id]?.[day] || "");
     }

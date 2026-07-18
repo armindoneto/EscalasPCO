@@ -342,66 +342,88 @@ Regras de Extração:
 
 Importante: O retorno deve seguir estritamente o formato JSON especificado.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [
-        pdfPart,
-        { text: promptText }
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            role: {
-              type: Type.STRING,
-              description: "Função ou setor da escala extraída (ex: Médico, Enfermeiro, Recepcionista, UTI)",
-            },
-            month: {
-              type: Type.STRING,
-              description: "Mês da escala extraída (ex: Julho)",
-            },
-            year: {
-              type: Type.INTEGER,
-              description: "Ano da escala extraído (ex: 2026)",
-            },
-            professionals: {
-              type: Type.ARRAY,
-              description: "Lista de profissionais identificados na escala",
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  name: {
-                    type: Type.STRING,
-                    description: "Nome do profissional",
-                  },
-                  days: {
-                    type: Type.ARRAY,
-                    description: "Lista de dias trabalhados e seus respectivos turnos",
-                    items: {
-                      type: Type.OBJECT,
-                      properties: {
-                        day: {
-                          type: Type.INTEGER,
-                          description: "Dia do mês (1 a 31)",
-                        },
-                        shift: {
-                          type: Type.STRING,
-                          description: "Sigla ou nome do turno correspondente (ex: D, N, M, T, 12h, 24h)",
+    let response;
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastError: any = null;
+
+    while (attempts < maxAttempts) {
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents: [
+            pdfPart,
+            { text: promptText }
+          ],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                role: {
+                  type: Type.STRING,
+                  description: "Função ou setor da escala extraída (ex: Médico, Enfermeiro, Recepcionista, UTI)",
+                },
+                month: {
+                  type: Type.STRING,
+                  description: "Mês da escala extraída (ex: Julho)",
+                },
+                year: {
+                  type: Type.INTEGER,
+                  description: "Ano da escala extraído (ex: 2026)",
+                },
+                professionals: {
+                  type: Type.ARRAY,
+                  description: "Lista de profissionais identificados na escala",
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: {
+                        type: Type.STRING,
+                        description: "Nome do profissional",
+                      },
+                      days: {
+                        type: Type.ARRAY,
+                        description: "Lista de dias trabalhados e seus respectivos turnos",
+                        items: {
+                          type: Type.OBJECT,
+                          properties: {
+                            day: {
+                              type: Type.INTEGER,
+                              description: "Dia do mês (1 a 31)",
+                            },
+                            shift: {
+                              type: Type.STRING,
+                              description: "Sigla ou nome do turno correspondente (ex: D, N, M, T, 12h, 24h)",
+                            },
+                          },
+                          required: ["day", "shift"],
                         },
                       },
-                      required: ["day", "shift"],
                     },
+                    required: ["name", "days"],
                   },
                 },
-                required: ["name", "days"],
               },
+              required: ["role", "professionals"],
             },
           },
-          required: ["role", "professionals"],
-        },
-      },
-    });
+        });
+        break; // Success! Break out of the retry loop.
+      } catch (err: any) {
+        attempts++;
+        lastError = err;
+        console.warn(`[Gemini PDF Extração] Tentativa ${attempts}/${maxAttempts} falhou:`, err.message || err);
+        if (attempts < maxAttempts) {
+          // Wait 1.5s before retrying
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+    }
+
+    if (!response) {
+      throw lastError || new Error("Falha ao se conectar com o modelo Gemini após várias tentativas devido a alta demanda.");
+    }
 
     const textOutput = response.text;
     if (!textOutput) {
@@ -420,7 +442,7 @@ Importante: O retorno deve seguir estritamente o formato JSON especificado.`;
     } else {
       res.status(500).json({
         error: "EXTRACTION_FAILED",
-        message: "Ocorreu um erro ao analisar o PDF. Verifique se o arquivo está legível ou use a simulação.",
+        message: "Ocorreu um erro devido a alta demanda ou instabilidade na API do Gemini. Por favor, tente novamente em alguns instantes ou use a opção 'Forçar Contingência' no cartão do militar para carregar os dados simulados.",
         details: error.message,
       });
     }

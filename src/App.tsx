@@ -20,7 +20,12 @@ import {
   Filter,
   X,
   Sparkles,
-  HelpCircle
+  HelpCircle,
+  UserPlus,
+  ExternalLink,
+  ArrowUp,
+  ArrowDown,
+  Pencil
 } from "lucide-react";
 import { 
   DEFAULT_SLOTS, 
@@ -141,7 +146,178 @@ const SCALE_OPTIONS = [
   { code: "KF", label: "Operador de KF" },
   { code: "TD", label: "Técnico de Dia" },
   { code: "MC", label: "Motorista de Coletivo" },
+  { code: "AC", label: "SD + TD Acumulado" },
 ];
+
+const getScaleSigla = (roleText: string): string => {
+  const clean = (roleText || "").toUpperCase().trim();
+  
+  // Check Sobreaviso first to prevent "SOBREAVISO MOTORISTA" or "SOBREAVISO PERMANÊNCIA" from matching "MD" or "PV"
+  if (clean.startsWith("SM") || (clean.includes("SOBREAVISO") && (clean.includes("MOTORISTA") || clean.includes("MD")))) return "SM";
+  if (clean.startsWith("SS") || (clean.includes("SOBREAVISO") && (clean.includes("SENTINELA") || clean.includes("VILA") || clean.includes("PERMANE") || clean.includes("PV") || clean.includes("SARGENTO")))) return "SS";
+
+  if (clean.startsWith("MD") || clean.includes("MOTORISTA DE DIA")) return "MD";
+  if (clean.startsWith("PV") || clean.includes("PERMANÊNCIA") || clean.includes("PERMANENCIA")) return "PV";
+  if (clean.startsWith("SD") || clean.includes("SEGURANÇA") || clean.includes("SEGURANCA") || clean.includes("DEFESA")) return "SD";
+  if (clean.startsWith("ST") || clean.includes("SENTINELA")) return "ST";
+  if (clean.startsWith("KF") || clean.includes("KF")) return "KF";
+  if (clean.startsWith("TD") || clean.includes("TÉCNICO DE DIA") || clean.includes("TECNICO DE DIA")) return "TD";
+  if (clean.startsWith("MC") || (clean.includes("MOTORISTA") && clean.includes("COLETIVO"))) return "MC";
+  if (clean.startsWith("AC") || clean.includes("ACUMULADO")) return "AC";
+
+  if (roleText.includes(" - ")) {
+    return roleText.split(" - ")[0].trim();
+  }
+
+  return clean.substring(0, 2);
+};
+
+const getEasterSunday = (year: number): Date => {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const L = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * L) / 451);
+  const month = Math.floor((h + L - 7 * m + 114) / 31); // 3 = March, 4 = April
+  const day = ((h + L - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+};
+
+const getCellFontColor = (day: number, month: number, year: number): string => {
+  // Check special purple days first:
+  // 24, 25, 31 de dezembro (month = 11)
+  // 01 de janeiro (month = 0)
+  if ((month === 11 && (day === 24 || day === 25 || day === 31)) || (month === 0 && day === 1)) {
+    return "text-purple-600"; // purple
+  }
+
+  // Check Carnival days
+  const easter = getEasterSunday(year);
+  // Carnival days are Saturday to Tuesday (50 to 47 days before Easter)
+  let isCarnaval = false;
+  for (let d = 47; d <= 50; d++) {
+    const carnavDate = new Date(easter.getTime());
+    carnavDate.setDate(easter.getDate() - d);
+    if (carnavDate.getFullYear() === year && carnavDate.getMonth() === month && carnavDate.getDate() === day) {
+      isCarnaval = true;
+      break;
+    }
+  }
+
+  if (isCarnaval) {
+    return "text-purple-600";
+  }
+
+  // Check weekday / weekend
+  const date = new Date(year, month, day);
+  const dayOfWeek = date.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  if (isWeekend) {
+    return "text-red-600";
+  }
+
+  return "text-slate-900"; // weekday
+};
+
+const parseLoadedProfessionals = (raw: any[]): Professional[] => {
+  if (!raw) return [];
+  return raw.map((p) => {
+    let rank = p.rank || "";
+    let specialty = p.specialty || "";
+    let sort_order = p.sort_order || 0;
+    if (p.role && p.role.includes(":::")) {
+      const parts = p.role.split(":::");
+      rank = parts[0] || "";
+      specialty = parts[1] || "";
+      if (parts[2] !== undefined) {
+        sort_order = parseInt(parts[2], 10) || 0;
+      }
+    } else if (!rank) {
+      rank = "";
+      specialty = "";
+    }
+    return {
+      ...p,
+      rank,
+      specialty,
+      sort_order,
+    };
+  });
+};
+
+const normalizeStr = (str: string) => {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+};
+
+const getTargetCategoryForSigla = (sigla: string): "SOLDADOS" | "GRADUADOS" | undefined => {
+  const upper = sigla.toUpperCase().trim();
+  if (["ST", "MD", "PV", "SM", "SS"].includes(upper)) return "SOLDADOS";
+  if (["SD", "TD", "KF", "MC", "AC"].includes(upper)) return "GRADUADOS";
+  return undefined;
+};
+
+const matchMilitaryName = (parsedName: string, profs: Professional[], category?: "GRADUADOS" | "SOLDADOS") => {
+  const cleanParsed = normalizeStr(parsedName);
+  if (!cleanParsed) return undefined;
+
+  const filteredProfs = category ? profs.filter(p => p.category === category) : profs;
+
+  // 1. Full exact match including rank, specialty and name
+  let found = filteredProfs.find((p) => {
+    const fullComb = normalizeStr(`${p.rank || ""} ${p.specialty || ""} ${p.name || ""}`);
+    return fullComb === cleanParsed;
+  });
+  if (found) return found;
+
+  // 2. Match rank and name
+  found = filteredProfs.find((p) => {
+    const rankNameComb = normalizeStr(`${p.rank || ""} ${p.name || ""}`);
+    return rankNameComb === cleanParsed;
+  });
+  if (found) return found;
+
+  // 3. Match specialty and name
+  found = filteredProfs.find((p) => {
+    const specNameComb = normalizeStr(`${p.specialty || ""} ${p.name || ""}`);
+    return specNameComb === cleanParsed;
+  });
+  if (found) return found;
+
+  // 4. Match exact name
+  found = filteredProfs.find((p) => {
+    return normalizeStr(p.name) === cleanParsed;
+  });
+  if (found) return found;
+
+  // 5. Match if the professional's name is a word ending in cleanParsed
+  found = filteredProfs.find((p) => {
+    if (!p.name) return false;
+    const pNameNorm = normalizeStr(p.name);
+    return cleanParsed.endsWith(pNameNorm) && (cleanParsed.length === pNameNorm.length || cleanParsed[cleanParsed.length - pNameNorm.length - 1] === " ");
+  });
+  if (found) return found;
+
+  // 6. Match if cleanParsed contains the professional's name
+  found = filteredProfs.find((p) => {
+    if (!p.name) return false;
+    const pNameNorm = normalizeStr(p.name);
+    return cleanParsed.includes(pNameNorm);
+  });
+  return found;
+};
 
 export default function App() {
   // Main active period and context state
@@ -176,17 +352,59 @@ export default function App() {
   // Active scale category: GRADUADOS or SOLDADOS
   const [activeScale, setActiveScale] = useState<"GRADUADOS" | "SOLDADOS">("GRADUADOS");
 
+  // Custom confirmation dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
   // Navigation and UI state
   const [activeTab, setActiveTab] = useState<"grid" | "report">("grid");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [editingCell, setEditingCell] = useState<{ profId: string; day: number } | null>(null);
   const [quickEditValue, setQuickEditValue] = useState<string>("");
+  const [indispEndDay, setIndispEndDay] = useState<number>(1);
+  const [isLaunchingIndisp, setIsLaunchingIndisp] = useState<boolean>(false);
+  const [selectedDayForPopup, setSelectedDayForPopup] = useState<number | null>(null);
 
   // Notification and warning overlay state
   const [notification, setNotification] = useState<{ type: "success" | "warning" | "error" | "info"; message: string } | null>(null);
 
   // Manual entry state
   const [manualName, setManualName] = useState<string>("");
+
+  // Add Military Modal state
+  const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const [addRank, setAddRank] = useState<string>("");
+  const [addSpecialty, setAddSpecialty] = useState<string>("");
+  const [addName, setAddName] = useState<string>("");
+
+  // Delete Scales Modal state
+  const [isDeleteScalesModalOpen, setIsDeleteScalesModalOpen] = useState<boolean>(false);
+  const [selectedScalesToDelete, setSelectedScalesToDelete] = useState<string[]>([]);
+
+  // Edit Military Modal state
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+  const [editingProfId, setEditingProfId] = useState<string>("");
+  const [editRank, setEditRank] = useState<string>("");
+  const [editSpecialty, setEditSpecialty] = useState<string>("");
+  const [editName, setEditName] = useState<string>("");
+  const [editCategory, setEditCategory] = useState<'GRADUADOS' | 'SOLDADOS'>('GRADUADOS');
+
+  // Print Iframe Warning Modal state
+  const [isPrintIframeModalOpen, setIsPrintIframeModalOpen] = useState<boolean>(false);
+
+  // CSV Help Modal state
+  const [isCsvHelpModalOpen, setIsCsvHelpModalOpen] = useState<boolean>(false);
+
+  // Unmatched military names modal
+  const [unmatchedNamesModal, setUnmatchedNamesModal] = useState<{
+    isOpen: boolean;
+    names: string[];
+    totalImported: number;
+  } | null>(null);
 
   const fileInputRefs = useRef<{ [slotId: string]: HTMLInputElement | null }>({});
 
@@ -214,7 +432,7 @@ export default function App() {
             .maybeSingle();
           if (sError) throw sError;
 
-          setProfessionals(mData || []);
+          setProfessionals(parseLoadedProfessionals(mData || []));
           setCellState(sData?.cell_state || {});
           setDbSyncStatus('synced');
         } else {
@@ -257,7 +475,7 @@ export default function App() {
               loadedCells = sData.data.cell_state || {};
             }
 
-            setProfessionals(loadedProfs);
+            setProfessionals(parseLoadedProfessionals(loadedProfs));
             setCellState(loadedCells);
             setDbSyncStatus('synced');
           } else {
@@ -265,7 +483,7 @@ export default function App() {
             const localProfs = localStorage.getItem("military_professionals");
             const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
 
-            if (localProfs) setProfessionals(JSON.parse(localProfs));
+            if (localProfs) setProfessionals(parseLoadedProfessionals(JSON.parse(localProfs)));
             else setProfessionals([]);
 
             if (localCells) setCellState(JSON.parse(localCells));
@@ -283,7 +501,7 @@ export default function App() {
         const localProfs = localStorage.getItem("military_professionals");
         const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
 
-        if (localProfs) setProfessionals(JSON.parse(localProfs));
+        if (localProfs) setProfessionals(parseLoadedProfessionals(JSON.parse(localProfs)));
         else setProfessionals([]);
 
         if (localCells) setCellState(JSON.parse(localCells));
@@ -315,9 +533,15 @@ export default function App() {
         if (clientSupabase) {
           // 1. Save professionals
           if (professionals && professionals.length > 0) {
+            const cleanProfs = professionals.map(p => ({
+              id: p.id,
+              name: p.name,
+              role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
+              category: p.category
+            }));
             const { error: mError } = await (clientSupabase as any)
               .from("military_professionals")
-              .upsert(professionals, { onConflict: "id" });
+              .upsert(cleanProfs, { onConflict: "id" });
             if (mError) throw mError;
           }
 
@@ -338,10 +562,16 @@ export default function App() {
         } else if (supabaseConfigured) {
           // Save via server-side API proxy
           // 1. Save professionals
+          const cleanProfs = professionals.map(p => ({
+            id: p.id,
+            name: p.name,
+            role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
+            category: p.category
+          }));
           const mRes = await fetch("/api/military", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ professionals }),
+            body: JSON.stringify({ professionals: cleanProfs }),
           });
           
           // 2. Save monthly scales
@@ -386,9 +616,15 @@ export default function App() {
         // Direct client-side connection save
         // 1. Save professionals
         if (professionals && professionals.length > 0) {
+          const cleanProfs = professionals.map(p => ({
+            id: p.id,
+            name: p.name,
+            role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
+            category: p.category
+          }));
           const { error: mError } = await (clientSupabase as any)
             .from("military_professionals")
-            .upsert(professionals, { onConflict: "id" });
+            .upsert(cleanProfs, { onConflict: "id" });
           if (mError) throw mError;
         }
 
@@ -410,10 +646,16 @@ export default function App() {
       } else if (supabaseConfigured) {
         // Save via server-side proxy
         // 1. Save professionals
+        const cleanProfs = professionals.map(p => ({
+          id: p.id,
+          name: p.name,
+          role: `${p.rank || ""}:::${p.specialty || ""}:::${p.sort_order || 0}`,
+          category: p.category
+        }));
         const mRes = await fetch("/api/military", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ professionals }),
+          body: JSON.stringify({ professionals: cleanProfs }),
         });
         
         // 2. Save monthly scales
@@ -459,7 +701,13 @@ export default function App() {
   const handleProcessQueue = (slotId: string) => {
     const slot = slots.find((s) => s.id === slotId);
     if (slot && slot.fileToProcess) {
-      handleFileUpload(slotId, slot.fileToProcess);
+      const file = slot.fileToProcess as File;
+      const isCsv = file.name.endsWith(".csv") || file.name.endsWith(".txt");
+      if (isCsv) {
+        handleCsvUpload(slotId, file);
+      } else {
+        handleFileUpload(slotId, file);
+      }
     } else {
       handleContingencyParsing(slotId);
     }
@@ -486,10 +734,46 @@ export default function App() {
 
   // Filter military personnel based on search and active scale
   const filteredProfessionals = useMemo(() => {
-    return professionals.filter((p) => {
-      return p.category === activeScale && p.name.toLowerCase().includes(searchQuery.toLowerCase());
-    });
+    return professionals
+      .filter((p) => {
+        return p.category === activeScale && p.name.toLowerCase().includes(searchQuery.toLowerCase());
+      })
+      .sort((a, b) => {
+        const orderA = a.sort_order ?? 0;
+        const orderB = b.sort_order ?? 0;
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        return a.name.localeCompare(b.name);
+      });
   }, [professionals, searchQuery, activeScale]);
+
+  // Sorted lists for the print/report view to preserve user-defined order
+  const sortedGraduados = useMemo(() => {
+    return professionals
+      .filter((p) => p.category === "GRADUADOS")
+      .sort((a, b) => {
+        const orderA = a.sort_order ?? 0;
+        const orderB = b.sort_order ?? 0;
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        return a.name.localeCompare(b.name);
+      });
+  }, [professionals]);
+
+  const sortedSoldados = useMemo(() => {
+    return professionals
+      .filter((p) => p.category === "SOLDADOS")
+      .sort((a, b) => {
+        const orderA = a.sort_order ?? 0;
+        const orderB = b.sort_order ?? 0;
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        return a.name.localeCompare(b.name);
+      });
+  }, [professionals]);
 
   // Show a status notification helper
   const triggerNotification = (type: "success" | "warning" | "error" | "info", message: string) => {
@@ -500,52 +784,54 @@ export default function App() {
   };
 
   // Parse response scales and merge into state
-  const handleMergeParsedScale = (parsed: ParsedScale) => {
-    // 1. Assign unique IDs to military personnel and insert them
-    const newProfs: Professional[] = [];
-    const newCellEntries: { [profId: string]: { [day: number]: string } } = {};
+  const handleMergeParsedScale = (parsed: ParsedScale, defaultRole?: string) => {
+    const roleToUse = defaultRole || parsed.role || "MD";
+    const scaleCode = getScaleSigla(roleToUse);
+    const targetCategory = getTargetCategoryForSigla(scaleCode);
 
-    const scaleCode = parsed.role.split(" - ")[0] || "MD";
+    const unregisteredNames: string[] = [];
+    const matchedEntries: { profId: string; category: "GRADUADOS" | "SOLDADOS"; days: { day: number; shift: string }[] }[] = [];
 
     parsed.professionals.forEach((parsedProf) => {
-      // Clean name
       const cleanName = parsedProf.name.trim();
       if (!cleanName) return;
 
-      // Check if military with same name and category already exists
-      let existing = professionals.find(
-        (p) => p.name.toLowerCase() === cleanName.toLowerCase() && p.category === activeScale
-      );
+      // Find in ALL professionals regardless of active category using robust rank + name matching
+      const existing = matchMilitaryName(cleanName, professionals, targetCategory);
 
-      let profId: string;
       if (existing) {
-        profId = existing.id;
-      } else {
-        profId = `prof-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        newProfs.push({
-          id: profId,
-          name: cleanName,
-          role: "Geral",
-          category: activeScale,
+        matchedEntries.push({
+          profId: existing.id,
+          category: existing.category,
+          days: parsedProf.days
         });
+      } else {
+        unregisteredNames.push(cleanName);
       }
-
-      // Prepare their cell schedule entries using the 2-letter scale code
-      newCellEntries[profId] = {};
-      parsedProf.days.forEach((duty) => {
-        if (duty.day >= 1 && duty.day <= daysInMonth) {
-          newCellEntries[profId][duty.day] = scaleCode;
-        }
-      });
     });
 
-    // Update military state
-    setProfessionals((prev) => {
-      // Filter out newProfs that might have duplicates in the same category, then append
-      const filteredNew = newProfs.filter(
-        (np) => !prev.some((p) => p.name.toLowerCase() === np.name.toLowerCase() && p.category === activeScale)
-      );
-      return [...prev, ...filteredNew];
+    if (unregisteredNames.length > 0) {
+      throw new Error(`Militar não cadastrado na escala: ${unregisteredNames.join(", ")}`);
+    }
+
+    const newCellEntries: { [profId: string]: { [day: number]: string } } = {};
+    matchedEntries.forEach((entry) => {
+      newCellEntries[entry.profId] = {};
+      entry.days.forEach((duty) => {
+        if (duty.day >= 1 && duty.day <= daysInMonth) {
+          const existingValue = cellState[entry.profId]?.[duty.day] || "";
+          let finalSigla = scaleCode;
+          const upperSigla = scaleCode.toUpperCase();
+          const upperExisting = existingValue.toUpperCase();
+          if (
+            (upperSigla === "SD" && upperExisting === "TD") ||
+            (upperSigla === "TD" && upperExisting === "SD")
+          ) {
+            finalSigla = "AC";
+          }
+          newCellEntries[entry.profId][duty.day] = finalSigla;
+        }
+      });
     });
 
     // Update cells state, merging with existing values
@@ -559,6 +845,7 @@ export default function App() {
       });
       return updated;
     });
+
     setIsDirty(true);
   };
 
@@ -614,7 +901,7 @@ export default function App() {
         }
 
         // Merge into scale state
-        handleMergeParsedScale(data);
+        handleMergeParsedScale(data, slot.defaultRole);
 
         // Mark slot as success
         setSlots((prev) =>
@@ -655,6 +942,359 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  // Upload and parse CSV file (Client-Side, 100% deterministic, no AI needed)
+  const handleCsvUpload = async (slotId: string, file: File) => {
+    const slot = slots.find((s) => s.id === slotId);
+    if (!slot) return;
+
+    // Update slot status to uploading
+    setSlots((prev) =>
+      prev.map((s) => (s.id === slotId ? { ...s, fileName: file.name, status: "uploading", errorMsg: null } : s))
+    );
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const text = reader.result as string;
+        // Split by newlines
+        const lines = text.split(/\r?\n/);
+        if (lines.length < 1) {
+          throw new Error("O arquivo CSV ou TXT parece estar vazio.");
+        }
+
+        const scaleChanges: { [profId: string]: { [day: number]: string } } = {};
+        const dutiesCountBySigla: { [sigla: string]: number } = {};
+        const unmatchedNames: string[] = [];
+        let totalImported = 0;
+        let skippedOtherMonthCount = 0;
+
+        const dateRegex = /^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s*$/;
+
+        // Process data rows
+        for (let r = 0; r < lines.length; r++) {
+          const line = lines[r].trim();
+          if (!line) continue;
+
+          // Split by semicolon (or comma as fallback)
+          const cols = line.split(line.includes(";") ? ";" : ",").map((c) => c.trim());
+          if (cols.length < 3) continue;
+
+          // Check if first column is a valid date (DD/MM/YYYY)
+          const match = cols[0].match(dateRegex);
+          if (!match) continue; // Ignore header or unstructured meta lines
+
+          const day = parseInt(match[1], 10);
+          const month = parseInt(match[2], 10) - 1; // 0-indexed month
+          const year = parseInt(match[3], 10);
+
+          // Verify if it matches active period
+          if (month !== selectedMonth || year !== selectedYear) {
+            skippedOtherMonthCount++;
+            continue;
+          }
+
+          const rawScale = cols[1];
+          if (!rawScale) continue;
+
+          const sigla = getScaleSigla(rawScale);
+          if (!sigla) continue;
+
+          const rawMilitaryCol = cols[2];
+          if (!rawMilitaryCol) continue;
+
+          // Clean military name up to the first parenthesis
+          const cleanMilitaryName = rawMilitaryCol.split("(")[0].trim();
+          if (!cleanMilitaryName) continue;
+
+          // Match military member
+          const targetCategory = getTargetCategoryForSigla(sigla);
+          const matchedProf = matchMilitaryName(cleanMilitaryName, professionals, targetCategory);
+
+          if (matchedProf) {
+            scaleChanges[matchedProf.id] = scaleChanges[matchedProf.id] || {};
+            
+            const existingValue = scaleChanges[matchedProf.id][day] || cellState[matchedProf.id]?.[day] || "";
+            let finalSigla = sigla;
+            const upperSigla = sigla.toUpperCase();
+            const upperExisting = existingValue.toUpperCase();
+            if (
+              (upperSigla === "SD" && upperExisting === "TD") ||
+              (upperSigla === "TD" && upperExisting === "SD")
+            ) {
+              finalSigla = "AC";
+            }
+
+            scaleChanges[matchedProf.id][day] = finalSigla;
+
+            dutiesCountBySigla[finalSigla] = (dutiesCountBySigla[finalSigla] || 0) + 1;
+            totalImported++;
+          } else {
+            // Do NOT auto-register, keep track of unmatched names
+            if (!unmatchedNames.includes(cleanMilitaryName)) {
+              unmatchedNames.push(cleanMilitaryName);
+            }
+          }
+        }
+
+        if (totalImported === 0) {
+          if (skippedOtherMonthCount > 0) {
+            throw new Error(`Nenhum plantão pôde ser carregado. Encontramos ${skippedOtherMonthCount} linhas pertencentes a outro mês/ano. Verifique se o período selecionado (${MONTHS[selectedMonth].label} de ${selectedYear}) corresponde aos dados do arquivo.`);
+          } else {
+            throw new Error("Não foi identificado nenhum plantão de serviço válido para militares cadastrados neste período.");
+          }
+        }
+
+        // Apply scale cells with overwriting of existing duties ONLY if there is an overlapping day in the imported file
+        setCellState((prev) => {
+          const updated = { ...prev };
+
+          // Merge the new assignments, overwriting only overlapping days
+          Object.keys(scaleChanges).forEach((pId) => {
+            updated[pId] = {
+              ...(updated[pId] || {}),
+              ...scaleChanges[pId]
+            };
+          });
+          return updated;
+        });
+
+        // Update slot status to success for slots that got data
+        setSlots((prev) =>
+          prev.map((s) => {
+            const sSigla = getScaleSigla(s.defaultRole);
+            const count = dutiesCountBySigla[sSigla];
+            if (count && count > 0) {
+              return {
+                ...s,
+                status: "success",
+                fileName: file.name,
+                parsedCount: count,
+                roleExtracted: s.defaultRole,
+                errorMsg: null,
+              };
+            }
+            // If it is the slot that was clicked but didn't receive any data specifically, set it to success if we did import anything, or reset to idle
+            if (s.id === slotId) {
+              return {
+                ...s,
+                status: "success",
+                fileName: file.name,
+                parsedCount: totalImported,
+                roleExtracted: s.defaultRole,
+                errorMsg: null,
+              };
+            }
+            return s;
+          })
+        );
+
+        setIsDirty(true);
+
+        if (unmatchedNames.length > 0) {
+          setUnmatchedNamesModal({
+            isOpen: true,
+            names: unmatchedNames,
+            totalImported
+          });
+        } else {
+          triggerNotification(
+            "success",
+            `Importação concluída com sucesso! ${totalImported} plantões de serviço foram atribuídos aos militares.`
+          );
+        }
+
+      } catch (err: any) {
+        console.error("Erro ao analisar arquivo CSV/TXT:", err);
+        setSlots((prev) =>
+          prev.map((s) => (s.id === slotId ? { ...s, status: "error", errorMsg: err.message || "Erro desconhecido ao processar arquivo." } : s))
+        );
+        triggerNotification("error", `Erro ao importar arquivo: ${err.message}`);
+      }
+    };
+
+    reader.onerror = () => {
+      setSlots((prev) =>
+        prev.map((s) => (s.id === slotId ? { ...s, status: "error", errorMsg: "Falha de leitura do arquivo local." } : s))
+      );
+    };
+
+    reader.readAsText(file, "UTF-8");
+  };
+
+  // Upload and parse unified CSV/TXT file for ALL scales
+  const handleUnifiedCsvUpload = async (file: File) => {
+    triggerNotification("info", "Iniciando processamento de escala única...");
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const text = reader.result as string;
+        const lines = text.split(/\r?\n/);
+        if (lines.length < 1) {
+          throw new Error("O arquivo de escala parece estar vazio.");
+        }
+
+        const scaleChanges: { [profId: string]: { [day: number]: string } } = {};
+        const dutiesCountBySigla: { [sigla: string]: number } = {};
+        const unmatchedNames: string[] = [];
+        let totalImported = 0;
+        let skippedOtherMonthCount = 0;
+
+        const dateRegex = /^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s*$/;
+
+        for (let r = 0; r < lines.length; r++) {
+          const line = lines[r].trim();
+          if (!line) continue;
+
+          // Split by semicolon (or comma as fallback)
+          const cols = line.split(line.includes(";") ? ";" : ",").map((c) => c.trim());
+          if (cols.length < 3) continue;
+
+          // Check if first column is a valid date (DD/MM/YYYY)
+          const match = cols[0].match(dateRegex);
+          if (!match) continue; // Ignore header/unstructured meta lines
+
+          const day = parseInt(match[1], 10);
+          const month = parseInt(match[2], 10) - 1; // 0-indexed month
+          const year = parseInt(match[3], 10);
+
+          if (month !== selectedMonth || year !== selectedYear) {
+            skippedOtherMonthCount++;
+            continue;
+          }
+
+          const rawScale = cols[1];
+          if (!rawScale) continue;
+
+          const sigla = getScaleSigla(rawScale);
+          if (!sigla) continue;
+
+          const rawMilitaryCol = cols[2];
+          if (!rawMilitaryCol) continue;
+
+          const cleanMilitaryName = rawMilitaryCol.split("(")[0].trim();
+          if (!cleanMilitaryName) continue;
+
+          const targetCategory = getTargetCategoryForSigla(sigla);
+          const matchedProf = matchMilitaryName(cleanMilitaryName, professionals, targetCategory);
+
+          if (matchedProf) {
+            scaleChanges[matchedProf.id] = scaleChanges[matchedProf.id] || {};
+            
+            const existingValue = scaleChanges[matchedProf.id][day] || cellState[matchedProf.id]?.[day] || "";
+            let finalSigla = sigla;
+            const upperSigla = sigla.toUpperCase();
+            const upperExisting = existingValue.toUpperCase();
+            if (
+              (upperSigla === "SD" && upperExisting === "TD") ||
+              (upperSigla === "TD" && upperExisting === "SD")
+            ) {
+              finalSigla = "AC";
+            }
+
+            scaleChanges[matchedProf.id][day] = finalSigla;
+
+            dutiesCountBySigla[finalSigla] = (dutiesCountBySigla[finalSigla] || 0) + 1;
+            totalImported++;
+          } else {
+            if (!unmatchedNames.includes(cleanMilitaryName)) {
+              unmatchedNames.push(cleanMilitaryName);
+            }
+          }
+        }
+
+        if (totalImported === 0) {
+          if (skippedOtherMonthCount > 0) {
+            throw new Error(`Nenhum plantão pôde ser carregado. Encontramos ${skippedOtherMonthCount} linhas de outros meses. Certifique-se de selecionar o mês correto no topo antes de importar.`);
+          } else {
+            throw new Error("Não foi possível identificar plantões para os militares cadastrados no sistema. Verifique a grafia dos nomes e se já estão cadastrados.");
+          }
+        }
+
+        // Apply scale cells with overwriting of existing duties ONLY if there is an overlapping day in the imported file
+        setCellState((prev) => {
+          const updated = { ...prev };
+
+          // Merge the new assignments, overwriting only overlapping days
+          Object.keys(scaleChanges).forEach((pId) => {
+            updated[pId] = {
+              ...(updated[pId] || {}),
+              ...scaleChanges[pId]
+            };
+          });
+          return updated;
+        });
+
+        // Update slots status
+        setSlots((prev) =>
+          prev.map((s) => {
+            const sSigla = getScaleSigla(s.defaultRole);
+            const count = dutiesCountBySigla[sSigla];
+            if (count && count > 0) {
+              return {
+                ...s,
+                status: "success",
+                fileName: file.name,
+                parsedCount: count,
+                roleExtracted: s.defaultRole,
+                errorMsg: null,
+              };
+            }
+            return s;
+          })
+        );
+
+        setIsDirty(true);
+
+        if (unmatchedNames.length > 0) {
+          setUnmatchedNamesModal({
+            isOpen: true,
+            names: unmatchedNames,
+            totalImported
+          });
+        } else {
+          triggerNotification(
+            "success",
+            `Escala única importada com sucesso! ${totalImported} plantões foram distribuídos entre as escalas do mês.`
+          );
+        }
+
+      } catch (err: any) {
+        console.error("Erro ao analisar arquivo de escala única:", err);
+        triggerNotification("error", `Erro ao importar escala única: ${err.message}`);
+      }
+    };
+
+    reader.onerror = () => {
+      triggerNotification("error", "Falha de leitura do arquivo local.");
+    };
+
+    reader.readAsText(file, "UTF-8");
+  };
+
+  const downloadCsvTemplate = () => {
+    const csvContent = "\uFEFF" + [
+      "Boletim para o dia 01/07/2026",
+      "DTCEA-PCO",
+      "Data;Escala;Escalado;Nome do Posto;",
+      "01/07/2026;MD - Motorista de Dia;S2 NE MARTURELLI(7725019) - PCOSA-4 - DTCEA-PCO;",
+      "01/07/2026;PV - Permanência na Vila Militar;S2 NE LEANDRO(7726627) - PCOVR - DTCEA-PCO;",
+      "01/07/2026;SD - Segurança e Defesa;2S SGS WAYAND(4025091) - PCOSA-2 - DTCEA-PCO;",
+      "02/07/2026;ST - Sentinela;S2 NE VALENTE(7640978) - PCOST-5 - DTCEA-PCO;"
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", "exemplo_escala_oficial.csv");
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    triggerNotification("success", "Exemplo de CSV oficial baixado com sucesso!");
+  };
+
   // Contingency parser fallback helper (runs automatically if Gemini key is missing so user experience is not broken)
   const handleContingencyParsing = (slotId: string) => {
     const slot = slots.find((s) => s.id === slotId);
@@ -674,8 +1314,8 @@ export default function App() {
     );
 
     setTimeout(() => {
-      const simulatedScale = generateMockScale(slot.defaultRole, selectedMonth, selectedYear);
-      handleMergeParsedScale(simulatedScale);
+      const simulatedScale = generateMockScale(slot.defaultRole, selectedMonth, selectedYear, professionals);
+      handleMergeParsedScale(simulatedScale, slot.defaultRole);
 
       setSlots((prev) =>
         prev.map((s) =>
@@ -733,71 +1373,222 @@ export default function App() {
     triggerNotification("info", `Escala de "${slot.defaultRole}" foi redefinida.`);
   };
 
-  // Clear everything
-  const handleClearAll = () => {
-    if (window.confirm("Deseja mesmo limpar todos os dados carregados de escalas e militares?")) {
-      setProfessionals([]);
-      setCellState({});
-      setSlots(DEFAULT_SLOTS.map((s) => ({ ...s })));
-      setIsDirty(true);
-      triggerNotification("success", "Todo o consolidado foi redefinido com sucesso.");
+  // Clear data for selected scales
+  const handleDeleteScalesConfirm = (scales: string[]) => {
+    if (scales.length === 0) {
+      triggerNotification("warning", "Selecione pelo menos uma escala para apagar.");
+      return;
     }
+
+    const newState: { [profId: string]: { [day: number]: string } } = {};
+    
+    setCellState((prev) => {
+      Object.keys(prev).forEach(profId => {
+        const profCells = prev[profId];
+        if (profCells) {
+          const newProfCells = { ...profCells };
+          
+          Object.keys(profCells).forEach(dayKey => {
+            const day = parseInt(dayKey, 10);
+            const val = profCells[day];
+            if (scales.includes(val)) {
+              delete newProfCells[day];
+            }
+          });
+          
+          if (Object.keys(newProfCells).length > 0) {
+            newState[profId] = newProfCells;
+          }
+        }
+      });
+
+      // Save to localStorage immediately
+      localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(newState));
+      return newState;
+    });
+
+    // Reset slots status of those scales
+    setSlots(prev => prev.map(slot => {
+      const slotSigla = getScaleSigla(slot.defaultRole);
+      if (scales.includes(slotSigla)) {
+        return {
+          ...slot,
+          status: "idle" as const,
+          fileName: null,
+          progress: 0,
+          textData: null,
+          error: null,
+          parsedCount: null,
+          roleExtracted: null,
+          fileToProcess: undefined
+        };
+      }
+      return slot;
+    }));
+
+    setIsDirty(true);
+    triggerNotification("success", "Escalas selecionadas foram apagadas com sucesso.");
+    setIsDeleteScalesModalOpen(false);
   };
 
   // Manual military addition
-  const handleAddManualProfessional = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!manualName.trim()) {
+  const handleAddManualProfessional = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!addRank.trim()) {
+      triggerNotification("warning", "A graduação do militar é obrigatória.");
+      return;
+    }
+    if (!addName.trim()) {
       triggerNotification("warning", "O nome do militar é obrigatório.");
       return;
     }
 
+    // Calculate max sort_order to append to the end of the list
+    const maxSortOrder = professionals
+      .filter(p => p.category === activeScale)
+      .reduce((max, p) => Math.max(max, p.sort_order || 0), -1);
+
     const profId = `prof-manual-${Date.now()}`;
     const newProf: Professional = {
       id: profId,
-      name: manualName.trim(),
-      role: "Geral",
+      name: addName.trim(),
+      role: `${addRank.trim()}:::${addSpecialty.trim()}:::${maxSortOrder + 1}`,
       category: activeScale,
+      rank: addRank.trim(),
+      specialty: addSpecialty.trim(),
+      sort_order: maxSortOrder + 1,
     };
 
     setProfessionals((prev) => [...prev, newProf]);
-    setManualName("");
+    setAddRank("");
+    setAddSpecialty("");
+    setAddName("");
+    setIsAddModalOpen(false);
     setIsDirty(true);
-    triggerNotification("success", `Militar "${newProf.name}" adicionado com sucesso.`);
+    triggerNotification("success", `Militar "${addRank.trim()} ${addName.trim()}" adicionado com sucesso.`);
+  };
+
+  // Reorder military professionals
+  const handleMoveProfessional = (id: string, direction: 'up' | 'down') => {
+    // Get all professionals of the active category sorted by order
+    const categoryProfs = professionals
+      .filter(p => p.category === activeScale)
+      .sort((a, b) => {
+        const orderA = a.sort_order ?? 0;
+        const orderB = b.sort_order ?? 0;
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name);
+      });
+
+    const index = categoryProfs.findIndex(p => p.id === id);
+    if (index === -1) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= categoryProfs.length) return;
+
+    // Create a new list where each professional has a defined, sequential sort_order
+    const mappedWithOrders = categoryProfs.map((p, idx) => ({
+      ...p,
+      sort_order: idx
+    }));
+
+    // Swap the orders
+    const temp = mappedWithOrders[index].sort_order;
+    mappedWithOrders[index].sort_order = mappedWithOrders[targetIndex].sort_order;
+    mappedWithOrders[targetIndex].sort_order = temp;
+
+    // Merge these updated professionals back into the full professionals array
+    setProfessionals((prev) => {
+      return prev.map((p) => {
+        const updated = mappedWithOrders.find(u => u.id === p.id);
+        return updated ? updated : p;
+      });
+    });
+
+    setIsDirty(true);
+  };
+
+  // Open Edit Military Modal
+  const handleOpenEditModal = (p: Professional) => {
+    setEditingProfId(p.id);
+    setEditRank(p.rank || "");
+    setEditSpecialty(p.specialty || "");
+    setEditName(p.name);
+    setEditCategory(p.category);
+    setIsEditModalOpen(true);
+  };
+
+  // Save Edit Military
+  const handleSaveEditProfessional = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!editRank.trim()) {
+      triggerNotification("warning", "A graduação do militar é obrigatória.");
+      return;
+    }
+    if (!editName.trim()) {
+      triggerNotification("warning", "O nome do militar é obrigatório.");
+      return;
+    }
+
+    setProfessionals((prev) =>
+      prev.map((p) =>
+        p.id === editingProfId
+          ? {
+              ...p,
+              name: editName.trim(),
+              rank: editRank.trim(),
+              specialty: editSpecialty.trim(),
+              category: editCategory,
+              role: `${editRank.trim()}:::${editSpecialty.trim()}:::${p.sort_order || 0}`,
+            }
+          : p
+      )
+    );
+
+    setIsEditModalOpen(false);
+    setIsDirty(true);
+    triggerNotification("success", "Militar atualizado com sucesso.");
   };
 
   // Delete a military
   const handleDeleteProfessional = async (id: string, name: string) => {
-    if (window.confirm(`Tem certeza de que deseja excluir o militar ${name}?`)) {
-      setProfessionals((prev) => prev.filter((p) => p.id !== id));
-      setCellState((prev) => {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
-      });
-      setIsDirty(true);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Excluir Militar",
+      message: `Tem certeza de que deseja excluir o militar ${name}? Todos os seus lançamentos também serão apagados.`,
+      onConfirm: async () => {
+        try {
+          setProfessionals((prev) => prev.filter((p) => p.id !== id));
+          setCellState((prev) => {
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
+          });
+          setIsDirty(true);
 
-      if (clientSupabase) {
-        try {
-          await (clientSupabase as any).from("military_professionals").delete().eq("id", id);
+          if (clientSupabase) {
+            await (clientSupabase as any).from("military_professionals").delete().eq("id", id);
+          } else if (supabaseConfigured) {
+            await fetch(`/api/military/${id}`, { method: "DELETE" }).catch(() => {});
+          }
+          
+          triggerNotification("info", `Militar ${name} foi excluído.`);
         } catch (err) {
-          console.error("Erro ao deletar militar diretamente do Supabase:", err);
-        }
-      } else if (supabaseConfigured) {
-        try {
-          await fetch(`/api/military/${id}`, { method: "DELETE" });
-        } catch (err) {
-          console.error("Erro ao deletar militar do banco:", err);
+          console.error("Erro ao excluir militar:", err);
+          triggerNotification("error", "Ocorreu um erro ao excluir o militar.");
+        } finally {
+          setConfirmDialog(null);
         }
       }
-      triggerNotification("info", `Militar ${name} foi excluído.`);
-    }
+    });
   };
 
   // Cell Edit Actions
   const handleCellClick = (profId: string, day: number) => {
     setEditingCell({ profId, day });
     setQuickEditValue(cellState[profId]?.[day] || "");
+    setIsLaunchingIndisp(false);
+    setIndispEndDay(day);
   };
 
   const handleCellSave = (profId: string, day: number, value: string) => {
@@ -814,6 +1605,57 @@ export default function App() {
 
   const handleQuickSelectShift = (profId: string, day: number, shift: string) => {
     handleCellSave(profId, day, shift);
+  };
+
+  const handleLaunchIndisponibilidade = (profId: string, startDay: number, endDay: number) => {
+    if (endDay < startDay) {
+      triggerNotification("error", "O dia final não pode ser anterior ao dia inicial.");
+      return;
+    }
+    setCellState((prev) => {
+      const updatedProfCells = { ...(prev[profId] || {}) };
+      for (let d = startDay; d <= endDay; d++) {
+        updatedProfCells[d] = "INDISP";
+      }
+      return {
+        ...prev,
+        [profId]: updatedProfCells,
+      };
+    });
+    setEditingCell(null);
+    setIsDirty(true);
+    triggerNotification("success", "Indisponibilidade lançada com sucesso!");
+  };
+
+  const handleClearIndisponibilidade = (profId: string, clickedDay: number) => {
+    setCellState((prev) => {
+      const profCells = prev[profId] || {};
+      const updatedProfCells = { ...profCells };
+      
+      updatedProfCells[clickedDay] = "";
+      
+      // Go left
+      let d = clickedDay - 1;
+      while (d >= 1 && profCells[d] === "INDISP") {
+        updatedProfCells[d] = "";
+        d--;
+      }
+      
+      // Go right
+      d = clickedDay + 1;
+      while (d <= daysInMonth && profCells[d] === "INDISP") {
+        updatedProfCells[d] = "";
+        d++;
+      }
+      
+      return {
+        ...prev,
+        [profId]: updatedProfCells,
+      };
+    });
+    setEditingCell(null);
+    setIsDirty(true);
+    triggerNotification("success", "Indisponibilidade limpa com sucesso!");
   };
 
   // Export to CSV
@@ -847,7 +1689,12 @@ export default function App() {
 
   // Trigger browser print
   const handlePrint = () => {
-    window.print();
+    const isInIframe = typeof window !== "undefined" && window.self !== window.top;
+    if (isInIframe) {
+      setIsPrintIframeModalOpen(true);
+    } else {
+      window.print();
+    }
   };
 
 
@@ -875,6 +1722,508 @@ export default function App() {
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* Custom Confirmation Modal */}
+      {confirmDialog && confirmDialog.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500" />
+                {confirmDialog.title}
+              </h3>
+              <p className="text-xs text-slate-600 mb-6 font-semibold leading-relaxed mt-3">
+                {confirmDialog.message}
+              </p>
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setConfirmDialog(null)}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={confirmDialog.onConfirm}
+                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded shadow-xs transition-all hover:shadow-md cursor-pointer"
+                >
+                  Confirmar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print/PDF Iframe Warning Modal */}
+      {isPrintIframeModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-lg w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-rose-600 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-rose-100 pb-2">
+                <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0" />
+                Impressão Bloqueada pelo Navegador
+              </h3>
+              <div className="text-xs text-slate-600 space-y-3 font-medium leading-relaxed mt-4">
+                <p>
+                  O navegador bloqueia a visualização da tela de impressão (PDF) quando o aplicativo está sendo executado dentro de um <strong>iframe</strong> (como este visualizador integrado).
+                </p>
+                <p className="bg-slate-50 border border-slate-200 p-3 rounded text-slate-700 font-semibold">
+                  Para gerar o PDF ou imprimir a escala, você deve abrir o sistema em uma <strong>nova aba cheia</strong> do seu navegador.
+                </p>
+                <p>
+                  Clique no botão abaixo para abrir o sistema em uma nova aba e depois acesse o painel <strong>Visualizar Impressão</strong> para gerar seu PDF perfeitamente.
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-3 mt-6 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => setIsPrintIframeModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
+                >
+                  Fechar
+                </button>
+                <button
+                  onClick={() => {
+                    setIsPrintIframeModalOpen(false);
+                    window.open(window.location.href, "_blank");
+                  }}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded shadow-xs transition-all hover:shadow-md cursor-pointer flex items-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Abrir em Nova Aba
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Scales Popup Modal */}
+      {isDeleteScalesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
+                <Trash2 className="w-4 h-4 text-rose-500" />
+                Apagar Escalas de Serviço
+              </h3>
+              <p className="text-[11px] text-slate-500 font-medium mb-4 mt-2">
+                Selecione quais escalas você deseja apagar completamente para o mês de <span className="font-bold text-slate-700">{MONTHS[selectedMonth].label} {selectedYear}</span>:
+              </p>
+
+              <div className="flex justify-between items-center mb-3 text-[10px] uppercase font-bold text-slate-400">
+                <span>Escalas Disponíveis ({SCALE_OPTIONS.length})</span>
+                <div className="flex gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedScalesToDelete(SCALE_OPTIONS.map(opt => opt.code))}
+                    className="text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                  >
+                    Marcar Todas
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedScalesToDelete([])}
+                    className="text-rose-600 hover:text-rose-800 cursor-pointer"
+                  >
+                    Desmarcar Todas
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-[240px] overflow-y-auto border border-slate-100 rounded bg-slate-50 p-3 flex flex-col gap-2 mb-5">
+                {SCALE_OPTIONS.map((opt) => {
+                  const isChecked = selectedScalesToDelete.includes(opt.code);
+                  return (
+                    <label 
+                      key={opt.code}
+                      className={`flex items-center gap-3 p-2 rounded-md border cursor-pointer transition-all ${
+                        isChecked 
+                          ? "bg-white border-rose-200 text-rose-900 font-bold shadow-xs" 
+                          : "bg-white/65 border-slate-100 text-slate-700 font-medium hover:bg-white"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedScalesToDelete(prev => [...prev, opt.code]);
+                          } else {
+                            setSelectedScalesToDelete(prev => prev.filter(c => c !== opt.code));
+                          }
+                        }}
+                        className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 w-3.5 h-3.5 cursor-pointer"
+                      />
+                      <div className="flex items-center justify-between w-full text-xs">
+                        <span className="truncate">{opt.label}</span>
+                        <span className="font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] font-black">{opt.code}</span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteScalesModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[10px] uppercase tracking-wider rounded transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteScalesConfirm(selectedScalesToDelete)}
+                  disabled={selectedScalesToDelete.length === 0}
+                  className={`px-4 py-2 text-white font-bold text-[10px] uppercase tracking-wider rounded transition-colors flex items-center gap-1.5 cursor-pointer ${
+                    selectedScalesToDelete.length === 0
+                      ? "bg-slate-300 cursor-not-allowed"
+                      : "bg-rose-600 hover:bg-rose-700 shadow-xs hover:shadow-md"
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Confirmar Exclusão ({selectedScalesToDelete.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Military Popup Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
+                <UserPlus className="w-4 h-4 text-indigo-500" />
+                Adicionar Novo Militar
+              </h3>
+              <form onSubmit={handleAddManualProfessional} className="space-y-4 mt-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                    Graduação <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={addRank}
+                    onChange={(e) => setAddRank(e.target.value)}
+                    placeholder="Ex: Cb, 3º Sgt, Sd"
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                    Especialidade <span className="text-slate-400 font-normal">(Opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={addSpecialty}
+                    onChange={(e) => setAddSpecialty(e.target.value)}
+                    placeholder="Ex: COM, MUS, INF"
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                    Nome <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    placeholder="Ex: Silva"
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddModalOpen(false)}
+                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded shadow-xs transition-all hover:shadow-md cursor-pointer"
+                  >
+                    Adicionar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Military Popup Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
+                <Pencil className="w-4 h-4 text-indigo-500" />
+                Editar Dados do Militar
+              </h3>
+              <form onSubmit={handleSaveEditProfessional} className="space-y-4 mt-4">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                    Graduação <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editRank}
+                    onChange={(e) => setEditRank(e.target.value)}
+                    placeholder="Ex: Cb, 3º Sgt, Sd"
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                    Especialidade <span className="text-slate-400 font-normal">(Opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editSpecialty}
+                    onChange={(e) => setEditSpecialty(e.target.value)}
+                    placeholder="Ex: COM, MUS, INF"
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                    Nome <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Ex: Silva"
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                    Escala / Categoria <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={editCategory}
+                    onChange={(e) => setEditCategory(e.target.value as 'GRADUADOS' | 'SOLDADOS')}
+                    className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
+                  >
+                    <option value="GRADUADOS">Graduados (Oficiais, Sargentos, Cabos)</option>
+                    <option value="SOLDADOS">Soldados</option>
+                  </select>
+                </div>
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditModalOpen(false)}
+                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[10px] font-black uppercase tracking-widest rounded shadow-xs transition-all hover:shadow-md cursor-pointer"
+                  >
+                    Salvar Alterações
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Import Help Modal */}
+      {isCsvHelpModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-lg w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-indigo-600 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-indigo-100 pb-2">
+                <HelpCircle className="w-5 h-5 text-indigo-500" />
+                Como Carregar Escalas via CSV / TXT
+              </h3>
+              
+              <div className="text-xs text-slate-600 space-y-4 font-medium leading-relaxed mt-4 max-h-[380px] overflow-y-auto pr-1">
+                <p>
+                  O sistema adapta-se <strong>diretamente ao formato de escala oficial</strong> que você já possui! Não é necessário converter ou criar um modelo novo.
+                </p>
+
+                <div className="bg-slate-50 border border-slate-200 p-3 rounded space-y-2">
+                  <h4 className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">Regras de Leitura do Arquivo:</h4>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-600 text-[11px]">
+                    <li><strong>Estrutura de Colunas:</strong> A primeira coluna deve conter a <strong>data</strong> (no formato <code>DD/MM/AAAA</code>), a segunda a <strong>escala</strong> (ex: <code>MD - Motorista de Dia</code>) e a terceira o <strong>militar</strong>.</li>
+                    <li><strong>Filtragem Automática:</strong> Linhas de cabeçalho, títulos ou metadados espalhados pelo arquivo são ignorados de forma inteligente!</li>
+                    <li><strong>Processamento do Nome:</strong> Na coluna do militar, o sistema extrai os dados apenas até o <strong>primeiro parêntese</strong> (ex: de <code>S2 NE LEANDRO(7726627) - ...</code> será lido apenas <code>S2 NE LEANDRO</code>).</li>
+                  </ul>
+
+                  <div className="border-t border-slate-200 pt-2 mt-2">
+                    <p className="font-semibold text-indigo-700 text-[10px]">Exemplo de Formato Aceito:</p>
+                    <pre className="text-[10px] bg-slate-100 p-1.5 rounded mt-1 font-mono text-slate-700 overflow-x-auto leading-normal">
+{`Boletim para o dia 01/07/2026
+DTCEA-PCO
+Data;Escala;Escalado;Nome do Posto;
+01/07/2026;MD - Motorista de Dia;S2 NE MARTURELLI(7725019) - PCOSA-4 - DTCEA-PCO;
+01/07/2026;PV - Permanência na Vila Militar;S2 NE LEANDRO(7726627) - PCOVR - DTCEA-PCO;`}
+                    </pre>
+                  </div>
+                </div>
+
+                <div className="border-l-4 border-amber-500 bg-amber-50/50 p-2.5 rounded-r">
+                  <h5 className="font-black text-amber-800 uppercase text-[9px] tracking-wider mb-0.5">⚠️ Cadastro Prévio Obrigatório</h5>
+                  <p className="text-slate-700 text-[11px] font-semibold leading-snug">
+                    O sistema <strong>não realiza cadastro automático</strong> de novos militares a partir do arquivo. Os militares devem ser cadastrados previamente através do botão <strong>"+ Adicionar Militar"</strong> no painel. Caso existam militares não encontrados, um relatório de nomes será exibido ao final da importação para que você possa cadastrá-los!
+                  </p>
+                </div>
+
+                <p>
+                  O arquivo pode ser salvo em formato <strong>.csv</strong> ou <strong>.txt</strong> utilizando tanto ponto-e-vírgula (<code>;</code>) quanto vírgula (<code>,</code>) como separador de campos.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 mt-6 pt-3 border-t border-slate-100">
+                <button
+                  onClick={downloadCsvTemplate}
+                  className="px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> Baixar Exemplo Oficial
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setIsCsvHelpModalOpen(false)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unmatched Military Names Modal */}
+      {unmatchedNamesModal?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-rose-100 max-w-lg w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-rose-600 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-rose-100 pb-3">
+                <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse shrink-0" />
+                Militar(es) Não Encontrado(s) no Sistema
+              </h3>
+              
+              <div className="space-y-4 mt-4 text-xs font-medium leading-relaxed">
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded p-3">
+                  Foram distribuídos com sucesso <strong className="text-emerald-700">{unmatchedNamesModal.totalImported} plantão(ões)</strong> na escala deste mês. Contudo, os militares abaixo foram citados no arquivo mas <strong>não estão cadastrados no sistema</strong>:
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 rounded p-4">
+                  <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                    Nomes Pendentes de Cadastro ({unmatchedNamesModal.names.length}):
+                  </h4>
+                  <div className="max-h-[160px] overflow-y-auto pr-1 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono font-bold text-slate-700">
+                    {unmatchedNamesModal.names.map((name, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 bg-white border border-slate-100 rounded px-2.5 py-1 text-slate-800">
+                        <span className="text-[9px] text-slate-400">{idx + 1}.</span>
+                        <span className="truncate">{name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-l-4 border-indigo-500 bg-indigo-50/50 p-2.5 rounded-r text-slate-700">
+                  <span className="font-bold block text-indigo-800 uppercase text-[9px] tracking-wider mb-0.5">Como Resolver:</span>
+                  <p className="text-[11px] font-semibold leading-snug">
+                    Feche este aviso, clique no botão <strong>"+ Adicionar Militar"</strong> no painel de controle e cadastre estes militares com a mesma grafia. Depois, re-importe o mesmo arquivo para preencher automaticamente as escalas deles!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end mt-6 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => setUnmatchedNamesModal(null)}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-[10px] font-black uppercase tracking-widest rounded transition-all cursor-pointer hover:scale-[1.02] shadow-xs hover:shadow-sm"
+                >
+                  Entendido, Fechar Aviso
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Daily duty popup modal */}
+      {selectedDayForPopup !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-lg w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <h3 className="text-sm font-black text-indigo-600 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-indigo-100 pb-3">
+                <Calendar className="w-5 h-5 text-indigo-500" />
+                Escala do Dia {selectedDayForPopup.toString().padStart(2, "0")}/{ (selectedMonth + 1).toString().padStart(2, "0") }/{selectedYear}
+              </h3>
+              
+              <div className="text-xs text-slate-600 space-y-4 font-medium leading-relaxed mt-4 max-h-[380px] overflow-y-auto pr-1">
+                {(() => {
+                  const day = selectedDayForPopup;
+                  const dutiesList: { code: string; label: string; military: string }[] = [];
+                  
+                  SCALE_OPTIONS.forEach((opt) => {
+                    professionals.forEach((prof) => {
+                      const val = cellState[prof.id]?.[day];
+                      if (val === opt.code) {
+                        const milStr = [prof.rank, prof.specialty, prof.name].filter(Boolean).join(" ");
+                        dutiesList.push({
+                          code: opt.code,
+                          label: opt.label,
+                          military: milStr
+                        });
+                      }
+                    });
+                  });
+
+                  if (dutiesList.length === 0) {
+                    return (
+                      <div className="py-8 text-center text-slate-400 font-bold uppercase tracking-wider">
+                        Nenhum militar escalado de serviço para este dia.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3">
+                      <p className="text-slate-500 text-[11px] uppercase tracking-wider font-bold">
+                        Militares de serviço:
+                      </p>
+                      <div className="bg-slate-50 border border-slate-200 p-4 rounded-lg space-y-2.5 font-mono text-[11px]">
+                        {dutiesList.map((item, index) => (
+                          <div key={index} className="text-slate-700 leading-normal border-b border-slate-200/40 pb-2 last:border-0 last:pb-0">
+                            <span className="font-bold text-indigo-700">{item.code}</span> - <span className="font-semibold text-slate-800">{item.label}</span>: <span className="text-slate-900 font-black">{item.military}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              <div className="flex justify-end mt-6 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => setSelectedDayForPopup(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -909,7 +2258,7 @@ export default function App() {
               dbSyncStatus === 'error' ? "bg-rose-500 animate-pulse" :
               "bg-slate-400"
             }`} />
-            {dbSyncStatus === 'synced' && "Supabase: Sincronizado"}
+            {dbSyncStatus === 'synced' && "DADOS SALVOS"}
             {dbSyncStatus === 'loading' && "Sincronizando..."}
             {dbSyncStatus === 'error' && "Erro de Sincronização"}
             {dbSyncStatus === 'local' && "Salvo Localmente"}
@@ -949,7 +2298,7 @@ export default function App() {
                     // Force state load from localStorage to recover work immediately
                     const localProfs = localStorage.getItem("military_professionals");
                     const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
-                    if (localProfs) setProfessionals(JSON.parse(localProfs));
+                    if (localProfs) setProfessionals(parseLoadedProfessionals(JSON.parse(localProfs)));
                     if (localCells) setCellState(JSON.parse(localCells));
                     triggerNotification("success", "Dados carregados do backup local com sucesso!");
                   }}
@@ -1046,7 +2395,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
           </div>
 
           {/* Reference Year */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 border-r border-slate-200 pr-4">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ano:</span>
             <select
               value={selectedYear}
@@ -1060,158 +2409,52 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
               ))}
             </select>
           </div>
+
+          {/* Unified Scale Upload */}
+          <div className="flex items-center gap-2">
+            <label className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] uppercase tracking-wider px-3.5 py-1.5 rounded cursor-pointer transition-colors shadow-xs flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.98]">
+              <UploadCloud className="w-3.5 h-3.5" />
+              Importar Escala
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    handleUnifiedCsvUpload(file);
+                  }
+                }}
+                className="hidden"
+              />
+            </label>
+            <button
+              type="button"
+              className="text-slate-500 hover:text-indigo-600 border border-slate-200 bg-white p-1.5 rounded transition-colors flex items-center justify-center hover:scale-[1.02] cursor-help"
+              title="Carregue o arquivo .csv baixado pela função de Exportar Planilha, no menu de visualização de boletim do E-RISAER."
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+        <div className="flex items-center gap-2">
           <button 
-            onClick={handleClearAll}
-            className="px-3 py-1 bg-white border border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-200 rounded transition-colors"
-            title="Limpar todos os dados"
+            onClick={() => {
+              setSelectedScalesToDelete([]); // Clear previous selections
+              setIsDeleteScalesModalOpen(true);
+            }}
+            className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1.5"
+            title="Apagar dados de escalas específicas do mês ativo"
           >
-            Limpar Dados
+            <Trash2 className="w-3.5 h-3.5" /> Apagar Escala
           </button>
         </div>
       </div>
 
       {/* Main Content Layout */}
-      <main className="flex-1 flex flex-col xl:flex-row overflow-hidden max-w-[1600px] w-full mx-auto p-6 gap-6 print:p-0">
+      <main className="flex-1 flex overflow-hidden max-w-[1800px] w-full mx-auto p-6 gap-6 print:p-0">
         
-        {/* Sidebar: PDF Upload Management (Left) - Hidden in Print */}
-        <aside className="no-print w-full xl:w-80 bg-white border border-slate-200 rounded p-6 flex flex-col gap-4 overflow-hidden shrink-0">
-          <h2 className="text-xs font-black text-indigo-600 uppercase tracking-widest mb-1">
-            Carga de Arquivos ({slots.filter(s => s.status === 'success').length}/9)
-          </h2>
-          
-          <div className="space-y-3 overflow-y-auto pr-1">
-            {slots.map((slot, index) => (
-              <div 
-                key={slot.id} 
-                className={`p-3 rounded border transition-all ${
-                  slot.status === "success" ? "border-2 border-dashed border-indigo-200 bg-indigo-50/50" :
-                  slot.status === "queued" ? "border border-amber-200 bg-amber-50/10" :
-                  slot.status === "uploading" ? "border border-indigo-200 bg-indigo-50/20 animate-pulse" :
-                  slot.status === "error" ? "border border-rose-200 bg-rose-50/30" :
-                  "border border-slate-200 bg-white hover:border-indigo-200"
-                }`}
-              >
-                {/* Title and role name */}
-                <div className="flex items-center justify-between gap-1 mb-1.5">
-                  <div className="flex items-center justify-between w-full overflow-hidden">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase truncate" title={slot.defaultRole}>
-                      0{index + 1}. {slot.defaultRole}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Idle slot upload choices */}
-                {slot.status === "idle" && (
-                  <div className="flex justify-between items-center mt-2 pt-1 border-t border-slate-100">
-                    <span className="text-[11px] text-slate-400 italic font-medium">Aguardando...</span>
-                    <div className="flex gap-3">
-                      <label className="text-[10px] text-indigo-600 font-black underline uppercase cursor-pointer hover:text-indigo-800 tracking-wider">
-                        Selecionar
-                        <input
-                          type="file"
-                          accept=".pdf"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              setSlots((prev) =>
-                                prev.map((s) =>
-                                  s.id === slot.id
-                                    ? {
-                                        ...s,
-                                        fileName: file.name,
-                                        status: "queued",
-                                        fileToProcess: file,
-                                        errorMsg: null,
-                                      }
-                                    : s
-                                )
-                              );
-                            }
-                          }}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                )}
-
-                {/* Queued Status */}
-                {slot.status === "queued" && (
-                  <div className="flex justify-between items-center mt-2 pt-1.5 border-t border-slate-100/80">
-                    <span className="text-[11px] text-amber-800 font-bold truncate max-w-[130px] italic" title={slot.fileName || ""}>
-                      {slot.fileName}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleResetSlot(slot.id)}
-                        className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
-                        title="Cancelar upload"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleProcessQueue(slot.id)}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white p-1 rounded-full transition-all shadow-sm flex items-center justify-center cursor-pointer hover:scale-105 active:scale-95 shrink-0"
-                        title="Processar e incluir dados na escala"
-                      >
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Uploading Status */}
-                {slot.status === "uploading" && (
-                  <div className="flex items-center gap-1.5 py-1 text-[11px] text-indigo-800 font-bold uppercase">
-                    <RefreshCw className="w-3.5 h-3.5 text-indigo-600 animate-spin shrink-0" />
-                    <span className="truncate">Analisando...</span>
-                  </div>
-                )}
-
-                {/* Success Status */}
-                {slot.status === "success" && (
-                  <div className="flex justify-between items-center mt-1">
-                    <span className="text-xs text-slate-600 font-medium truncate max-w-[150px]" title={slot.fileName || ""}>
-                      {slot.fileName}
-                    </span>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[9px] bg-green-500 text-white px-1.5 py-0.5 rounded-sm font-black uppercase">OK</span>
-                      <button
-                        onClick={() => handleResetSlot(slot.id)}
-                        className="text-slate-400 hover:text-rose-600 transition-colors p-0.5 cursor-pointer"
-                        title="Remover escala"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Error Status */}
-                {slot.status === "error" && (
-                  <div className="mt-1 flex flex-col gap-1.5">
-                    <span className="text-[10px] text-rose-600 font-medium line-clamp-2 leading-tight">
-                      {slot.errorMsg || "Erro na leitura do PDF."}
-                    </span>
-                    <div className="flex justify-end items-center pt-1 border-t border-slate-100">
-                      <button
-                        onClick={() => handleResetSlot(slot.id)}
-                        className="text-slate-400 hover:text-rose-600 p-0.5 cursor-pointer"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </aside>
-
-        {/* Main Data Area (Center/Right) */}
+        {/* Main Data Area */}
         <div className="flex-1 flex flex-col gap-6 overflow-hidden">
           
           {/* Navigation Tabs - Hidden in Print */}
@@ -1226,7 +2469,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 }`}
               >
                 <Calendar className="w-4 h-4" />
-                Escala Consolidada (Grade)
+                Escala Consolidada
               </button>
               <button
                 onClick={() => setActiveTab("report")}
@@ -1237,7 +2480,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 }`}
               >
                 <Printer className="w-4 h-4" />
-                Visualizar Impressão (PDF)
+                Visualizar Impressão
               </button>
             </div>
 
@@ -1270,14 +2513,11 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
           {/* TAB CONTENT 1: CONSOLIDATED GRID */}
           {activeTab === "grid" && (
             <div className="bg-white border border-slate-200 rounded shadow-sm flex-1 flex flex-col overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center shrink-0">
+              <div className="px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
                 <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
                   ESCALA ({activeScale}): <span className="text-indigo-600 italic font-display">{MONTHS[selectedMonth].label} {selectedYear}</span>
                 </h3>
-              </div>
 
-              {/* Filters Toolbar */}
-              <div className="no-print p-4 bg-slate-50 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
                 <div className="flex flex-wrap items-center gap-3">
                   {/* Text query search */}
                   <div className="relative">
@@ -1287,7 +2527,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="BUSCAR MILITAR..."
-                      className="bg-white border border-slate-200 rounded pl-9 pr-3 py-1.5 text-[11px] font-bold tracking-wider focus:outline-hidden focus:border-indigo-500 w-52 text-slate-800 placeholder-slate-400"
+                      className="bg-slate-50 border border-slate-200 rounded pl-9 pr-3 py-1.5 text-[11px] font-bold tracking-wider focus:outline-hidden focus:border-indigo-500 focus:bg-white w-52 text-slate-800 placeholder-slate-400"
                     />
                   </div>
 
@@ -1302,11 +2542,19 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       Limpar Filtros
                     </button>
                   )}
-                </div>
 
-                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider max-w-sm flex items-center gap-1.5 bg-white px-3 py-2 border border-slate-200 rounded">
-                  <Info className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                  <span>Dica: clique em uma célula para alterar a escala/serviço.</span>
+                  {/* Add military button */}
+                  <button
+                    onClick={() => {
+                      setAddRank("");
+                      setAddSpecialty("");
+                      setAddName("");
+                      setIsAddModalOpen(true);
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-4 py-2 rounded uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Adicionar Militar
+                  </button>
                 </div>
               </div>
 
@@ -1315,13 +2563,15 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="px-4 py-3 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10 bg-slate-50 border-r border-slate-200/50 min-w-[180px]">
+                      <th className="px-4 py-3 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10 bg-slate-50 border-r border-slate-200/50 min-w-[210px]">
                         Militar
                       </th>
                       {daysArray.map((dayObj) => (
                         <th
                           key={dayObj.day}
-                          className={`px-1 py-2 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-center font-mono min-w-[34px] ${
+                          onClick={() => setSelectedDayForPopup(dayObj.day)}
+                          title={`Ver militares de serviço no dia ${dayObj.day}`}
+                          className={`px-1 py-2 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-center font-mono min-w-[34px] cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 transition-colors ${
                             dayObj.isWeekend ? "bg-amber-50/50 text-amber-700 font-bold" : "text-slate-500"
                           }`}
                         >
@@ -1347,37 +2597,83 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       filteredProfessionals.map((prof) => (
                         <tr key={prof.id} className="hover:bg-indigo-50/30 transition-colors bg-white group">
                           {/* Military Name - Sticky Left */}
-                          <td className="px-4 py-2 bg-white sticky left-0 z-10 border-r border-slate-200/80 shadow-[2px_0_5px_rgba(0,0,0,0.01)] flex items-center justify-between group-hover:bg-slate-50">
-                            <span className="truncate max-w-[140px] uppercase text-xs font-bold text-slate-900">{prof.name}</span>
-                            <button
-                              onClick={() => handleDeleteProfessional(prof.id, prof.name)}
-                              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-600 p-0.5 transition-all no-print cursor-pointer"
-                              title="Excluir militar"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                          <td className="px-4 py-2 bg-white sticky left-0 z-10 border-r border-slate-200/80 shadow-[2px_0_5px_rgba(0,0,0,0.01)] flex items-center justify-between group-hover:bg-slate-50 min-w-[210px]">
+                            <div className="truncate max-w-[120px] uppercase text-xs font-bold text-slate-900">
+                              <span className="print:hidden">
+                                {prof.rank ? `${prof.rank} ` : ""}{prof.name}
+                              </span>
+                              <span className="hidden print:inline">
+                                {prof.rank ? `${prof.rank} ` : ""}
+                                {prof.specialty ? `${prof.specialty} ` : ""}
+                                {prof.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all no-print shrink-0 pl-1">
+                              <button
+                                onClick={() => handleMoveProfessional(prof.id, "up")}
+                                className="text-slate-400 hover:text-indigo-600 p-0.5 transition-colors cursor-pointer"
+                                title="Mover para cima"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleMoveProfessional(prof.id, "down")}
+                                className="text-slate-400 hover:text-indigo-600 p-0.5 transition-colors cursor-pointer"
+                                title="Mover para baixo"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleOpenEditModal(prof)}
+                                className="text-slate-400 hover:text-indigo-600 p-0.5 transition-colors cursor-pointer"
+                                title="Editar militar"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProfessional(prof.id, prof.name)}
+                                className="text-slate-400 hover:text-rose-600 p-0.5 transition-colors cursor-pointer"
+                                title="Excluir militar"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </td>
 
-                          {/* Duty days rendering */}
+                           {/* Duty days rendering */}
                           {daysArray.map((dayObj) => {
                             const cellValue = cellState[prof.id]?.[dayObj.day] || "";
                             const isEditing = editingCell?.profId === prof.id && editingCell?.day === dayObj.day;
+                            const isIndisp = cellValue === "INDISP";
 
-                            // Mapping 9 service colors
+                            // Mapping 9 service background colors (text is handled dynamically)
                             const serviceColors: { [key: string]: string } = {
-                              MD: "text-blue-700 bg-blue-50/50 hover:bg-blue-100/60",
-                              PV: "text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/60",
-                              SD: "text-purple-700 bg-purple-50/50 hover:bg-purple-100/60",
-                              SM: "text-emerald-700 bg-emerald-50/40 hover:bg-emerald-100/50",
-                              SS: "text-cyan-700 bg-cyan-50/40 hover:bg-cyan-100/50",
-                              ST: "text-amber-700 bg-amber-50/40 hover:bg-amber-100/50",
-                              KF: "text-fuchsia-700 bg-fuchsia-50/40 hover:bg-fuchsia-100/50",
-                              TD: "text-rose-700 bg-rose-50/40 hover:bg-rose-100/50",
-                              MC: "text-teal-700 bg-teal-50/40 hover:bg-teal-100/50",
+                              MD: "bg-blue-50/50 hover:bg-blue-100/60",
+                              PV: "bg-indigo-50/50 hover:bg-indigo-100/60",
+                              SD: "bg-purple-50/50 hover:bg-purple-100/60",
+                              SM: "bg-emerald-50/40 hover:bg-emerald-100/50",
+                              SS: "bg-cyan-50/40 hover:bg-cyan-100/50",
+                              ST: "bg-amber-50/40 hover:bg-amber-100/50",
+                              KF: "bg-fuchsia-50/40 hover:bg-fuchsia-100/50",
+                              TD: "bg-rose-50/40 hover:bg-rose-100/50",
+                              MC: "bg-teal-50/40 hover:bg-teal-100/50",
+                              AC: "bg-orange-50/55 hover:bg-orange-100/70",
                             };
 
-                            const colorClass = serviceColors[cellValue.toUpperCase()] || 
-                              (cellValue && cellValue.trim() !== "" ? "text-slate-800 bg-slate-100 hover:bg-slate-200" : "hover:bg-slate-100/50");
+                            const isFilled = cellValue && cellValue.trim() !== "";
+                            const bgClass = isIndisp 
+                              ? "bg-red-600 hover:bg-red-700 animate-fade-in"
+                              : (isFilled 
+                                  ? (serviceColors[cellValue.toUpperCase()] || "bg-slate-100 hover:bg-slate-200") 
+                                  : "hover:bg-slate-100/50");
+
+                            const textClass = isIndisp 
+                              ? "text-white" 
+                              : (isFilled 
+                                  ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
+                                  : "text-slate-300");
+
+                            const colorClass = `${bgClass} ${textClass}`;
 
                             return (
                               <td
@@ -1388,42 +2684,110 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                 } ${colorClass}`}
                               >
                                 {isEditing ? (
-                                  <div className="relative z-50 p-0.5 min-w-[60px]" onClick={(e) => e.stopPropagation()}>
-                                    <input
-                                      type="text"
-                                      value={quickEditValue}
-                                      onChange={(e) => setQuickEditValue(e.target.value)}
-                                      className="w-full bg-white border border-indigo-600 rounded-sm text-center py-0.5 font-bold font-mono text-slate-900 focus:outline-hidden"
-                                      autoFocus
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") handleCellSave(prof.id, dayObj.day, quickEditValue);
-                                        if (e.key === "Escape") setEditingCell(null);
-                                      }}
-                                      onBlur={() => handleCellSave(prof.id, dayObj.day, quickEditValue)}
-                                    />
-                                    {/* Quick Shift Selection Dropdown */}
-                                    <div className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded shadow-lg py-1 px-1.5 flex flex-wrap gap-1 w-52 z-50">
-                                      {SCALE_OPTIONS.map((opt) => (
-                                        <button
-                                          key={opt.code}
-                                          title={opt.label}
-                                          onMouseDown={() => handleQuickSelectShift(prof.id, dayObj.day, opt.code)}
-                                          className="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-600 hover:text-white rounded-sm text-[10px] font-bold transition-colors cursor-pointer"
+                                  <div className="relative min-h-[26px]" onClick={(e) => e.stopPropagation()}>
+                                    {/* Absolute container that floats over the cell and doesn't affect cell width */}
+                                    <div className="absolute z-50 left-1/2 -translate-x-1/2 top-full mt-1 bg-white border border-slate-200 rounded-md shadow-xl p-2 w-56 flex flex-col gap-1.5 text-slate-800 text-left">
+                                      <div className="flex items-center justify-between border-b border-slate-100 pb-1 mb-0.5">
+                                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Dia {dayObj.day.toString().padStart(2, "0")}</span>
+                                        <button 
+                                          onMouseDown={() => setEditingCell(null)}
+                                          className="text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
                                         >
-                                          {opt.code}
+                                          <X className="w-3 h-3" />
                                         </button>
-                                      ))}
-                                      <button
-                                        onMouseDown={() => handleQuickSelectShift(prof.id, dayObj.day, "")}
-                                        className="px-1.5 py-0.5 bg-rose-50 hover:bg-rose-600 hover:text-white rounded-sm text-[10px] text-rose-600 font-bold transition-colors w-full text-center cursor-pointer"
-                                      >
-                                        Limpar
-                                      </button>
+                                      </div>
+
+                                      {isLaunchingIndisp ? (
+                                        <div className="flex flex-col gap-1.5 bg-slate-50 p-1.5 rounded border border-slate-100 text-slate-800">
+                                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                                            Lançar Indisponibilidade
+                                          </div>
+                                          <div className="text-[9px] text-slate-500 font-medium">
+                                            Selecione o dia final (de {dayObj.day} até {daysInMonth}):
+                                          </div>
+                                          <select
+                                            value={indispEndDay}
+                                            onChange={(e) => setIndispEndDay(Number(e.target.value))}
+                                            className="w-full bg-white border border-slate-300 rounded p-1 text-[11px] font-bold focus:outline-hidden"
+                                          >
+                                            {Array.from({ length: daysInMonth - dayObj.day + 1 }, (_, idx) => {
+                                              const dNum = dayObj.day + idx;
+                                              return (
+                                                <option key={dNum} value={dNum}>
+                                                  Dia {dNum.toString().padStart(2, "0")}
+                                                </option>
+                                              );
+                                            })}
+                                          </select>
+                                          <div className="flex gap-1.5 mt-1">
+                                            <button
+                                              onMouseDown={() => handleLaunchIndisponibilidade(prof.id, dayObj.day, indispEndDay)}
+                                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] py-1 rounded uppercase tracking-wider transition-colors cursor-pointer text-center"
+                                            >
+                                              Confirmar
+                                            </button>
+                                            <button
+                                              onMouseDown={() => setIsLaunchingIndisp(false)}
+                                              className="flex-1 bg-slate-300 hover:bg-slate-400 text-slate-700 font-bold text-[10px] py-1 rounded uppercase tracking-wider transition-colors cursor-pointer text-center"
+                                            >
+                                              Voltar
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+                                            Selecione a Escala:
+                                          </div>
+                                          
+                                          {/* Quick Shift Selection Dropdown */}
+                                          <div className="flex flex-wrap gap-1 bg-slate-50 p-1 rounded border border-slate-100 justify-start">
+                                            {SCALE_OPTIONS.map((opt) => (
+                                              <button
+                                                key={opt.code}
+                                                title={opt.label}
+                                                onMouseDown={() => handleQuickSelectShift(prof.id, dayObj.day, opt.code)}
+                                                className="px-1.5 py-0.5 bg-white hover:bg-indigo-600 hover:text-white border border-slate-200 rounded-sm text-[9px] font-bold transition-colors cursor-pointer"
+                                              >
+                                                {opt.code}
+                                              </button>
+                                            ))}
+                                          </div>
+
+                                          {/* Indisponibilidade Button */}
+                                          {isIndisp ? (
+                                            <button
+                                              onMouseDown={() => handleClearIndisponibilidade(prof.id, dayObj.day)}
+                                              className="px-1.5 py-1.5 bg-amber-50 hover:bg-amber-600 hover:text-white rounded-sm text-[10px] text-amber-700 font-bold transition-colors w-full text-center cursor-pointer border border-amber-200 uppercase tracking-wider"
+                                            >
+                                              Limpar Indisponibilidade
+                                            </button>
+                                          ) : (
+                                            <button
+                                              onMouseDown={() => {
+                                                setIsLaunchingIndisp(true);
+                                                setIndispEndDay(dayObj.day);
+                                              }}
+                                              className="px-1.5 py-1.5 bg-red-50 hover:bg-red-600 hover:text-white text-red-700 rounded-sm text-[10px] font-bold transition-colors w-full text-center cursor-pointer border border-red-200 uppercase tracking-wider"
+                                            >
+                                              Lançar Indisponibilidade
+                                            </button>
+                                          )}
+                                          
+                                          {/* Clear cell */}
+                                          <button
+                                            onMouseDown={() => handleQuickSelectShift(prof.id, dayObj.day, "")}
+                                            className="px-1.5 py-1.5 bg-rose-50 hover:bg-rose-600 hover:text-white rounded-sm text-[10px] text-rose-600 font-bold transition-colors w-full text-center cursor-pointer border border-rose-100 uppercase tracking-wider"
+                                          >
+                                            Limpar Célula
+                                          </button>
+                                        </>
+                                      )}
                                     </div>
                                   </div>
                                 ) : (
                                   <div className="min-h-[26px] flex items-center justify-center">
-                                    {cellValue || "-"}
+                                    {isIndisp ? "" : (cellValue || "-")}
                                   </div>
                                 )}
                               </td>
@@ -1434,28 +2798,6 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     )}
                   </tbody>
                 </table>
-              </div>
-
-              {/* manual additions footer section */}
-              <div className="no-print p-4 bg-slate-50 border-t border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shrink-0">
-                <form onSubmit={handleAddManualProfessional} className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-                  <span className="text-[10px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1">
-                    <Plus className="w-4 h-4 text-slate-400" /> Adicionar Militar:
-                  </span>
-                  <input
-                    type="text"
-                    value={manualName}
-                    onChange={(e) => setManualName(e.target.value)}
-                    placeholder="NOME COMPLETO..."
-                    className="bg-white border border-slate-200 rounded px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider focus:outline-hidden focus:border-indigo-500 w-52 text-slate-800"
-                  />
-                  <button
-                    type="submit"
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-4 py-2 rounded uppercase tracking-wider transition-colors cursor-pointer"
-                  >
-                    Incluir na Grade
-                  </button>
-                </form>
               </div>
             </div>
           )}
@@ -1494,7 +2836,8 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
               <div className="print-area max-w-full overflow-x-auto mx-auto flex flex-col gap-12">
                 
                 {/* SHEET 1: GRADUADOS */}
-                <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black" style={{ pageBreakAfter: 'always' }}>
+                {activeScale === "GRADUADOS" && (
+                  <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black">
                   {/* Official Document Header */}
                   <div className="border-b-4 border-slate-900 pb-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -1546,7 +2889,9 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                           {daysArray.map((dayObj) => (
                             <th 
                               key={dayObj.day} 
-                              className={`p-1 text-center font-mono border-r border-slate-300 min-w-[20px] ${
+                              onClick={() => setSelectedDayForPopup(dayObj.day)}
+                              title={`Ver militares de serviço no dia ${dayObj.day}`}
+                              className={`p-1 text-center font-mono border-r border-slate-300 min-w-[20px] cursor-pointer hover:bg-slate-300 hover:text-indigo-700 transition-colors ${
                                 dayObj.isWeekend ? "bg-amber-100 text-amber-800" : ""
                               }`}
                             >
@@ -1556,28 +2901,39 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
-                        {professionals.filter(p => p.category === 'GRADUADOS').length === 0 ? (
+                        {sortedGraduados.length === 0 ? (
                           <tr>
                             <td colSpan={daysInMonth + 1} className="py-8 text-center text-slate-400 font-bold">
                               Nenhum graduado cadastrado nesta escala. Carregue escalas para visualizar.
                             </td>
                           </tr>
                         ) : (
-                          professionals.filter(p => p.category === 'GRADUADOS').map((prof) => (
+                          sortedGraduados.map((prof) => (
                             <tr key={prof.id} className="hover:bg-slate-50">
                               <td className="py-1.5 px-3 font-semibold border-r border-slate-200 text-slate-900 whitespace-nowrap uppercase">
+                                {prof.rank ? `${prof.rank} ` : ""}
+                                {prof.specialty ? `${prof.specialty} ` : ""}
                                 {prof.name}
                               </td>
                               {daysArray.map((dayObj) => {
                                 const val = cellState[prof.id]?.[dayObj.day] || "";
+                                const isIndisp = val === "INDISP";
+                                const hasVal = val && val.trim() !== "";
+                                const printTextClass = isIndisp 
+                                  ? "text-white" 
+                                  : (hasVal 
+                                      ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
+                                      : "text-slate-300");
+
                                 return (
                                   <td 
                                     key={dayObj.day} 
                                     className={`p-1 text-center font-mono font-bold border-r border-slate-200 ${
+                                      isIndisp ? "bg-red-600 font-black" :
                                       dayObj.isWeekend ? "bg-amber-50/10" : ""
-                                    }`}
+                                    } ${printTextClass}`}
                                   >
-                                    {val || "-"}
+                                    {isIndisp ? "" : (val || "-")}
                                   </td>
                                 );
                               })}
@@ -1619,9 +2975,11 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     </div>
                   </div>
                 </div>
+              )}
 
                 {/* SHEET 2: SOLDADOS */}
-                <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black print:mt-12" style={{ pageBreakBefore: 'always' }}>
+                {activeScale === "SOLDADOS" && (
+                  <div className="p-8 border border-slate-200 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 min-w-[1000px] flex flex-col gap-6 text-black">
                   {/* Official Document Header */}
                   <div className="border-b-4 border-slate-900 pb-4 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -1673,7 +3031,9 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                           {daysArray.map((dayObj) => (
                             <th 
                               key={dayObj.day} 
-                              className={`p-1 text-center font-mono border-r border-slate-300 min-w-[20px] ${
+                              onClick={() => setSelectedDayForPopup(dayObj.day)}
+                              title={`Ver militares de serviço no dia ${dayObj.day}`}
+                              className={`p-1 text-center font-mono border-r border-slate-300 min-w-[20px] cursor-pointer hover:bg-slate-300 hover:text-indigo-700 transition-colors ${
                                 dayObj.isWeekend ? "bg-amber-100 text-amber-800" : ""
                               }`}
                             >
@@ -1683,28 +3043,39 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-200">
-                        {professionals.filter(p => p.category === 'SOLDADOS').length === 0 ? (
+                        {sortedSoldados.length === 0 ? (
                           <tr>
                             <td colSpan={daysInMonth + 1} className="py-8 text-center text-slate-400 font-bold">
                               Nenhum soldado cadastrado nesta escala. Carregue escalas para visualizar.
                             </td>
                           </tr>
                         ) : (
-                          professionals.filter(p => p.category === 'SOLDADOS').map((prof) => (
+                          sortedSoldados.map((prof) => (
                             <tr key={prof.id} className="hover:bg-slate-50">
                               <td className="py-1.5 px-3 font-semibold border-r border-slate-200 text-slate-900 whitespace-nowrap uppercase">
+                                {prof.rank ? `${prof.rank} ` : ""}
+                                {prof.specialty ? `${prof.specialty} ` : ""}
                                 {prof.name}
                               </td>
                               {daysArray.map((dayObj) => {
                                 const val = cellState[prof.id]?.[dayObj.day] || "";
+                                const isIndisp = val === "INDISP";
+                                const hasVal = val && val.trim() !== "";
+                                const printTextClass = isIndisp 
+                                  ? "text-white" 
+                                  : (hasVal 
+                                      ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
+                                      : "text-slate-300");
+
                                 return (
                                   <td 
                                     key={dayObj.day} 
                                     className={`p-1 text-center font-mono font-bold border-r border-slate-200 ${
+                                      isIndisp ? "bg-red-600 font-black" :
                                       dayObj.isWeekend ? "bg-amber-50/10" : ""
-                                    }`}
+                                    } ${printTextClass}`}
                                   >
-                                    {val || "-"}
+                                    {isIndisp ? "" : (val || "-")}
                                   </td>
                                 );
                               })}
@@ -1746,6 +3117,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     </div>
                   </div>
                 </div>
+              )}
 
               </div>
             </div>
@@ -1758,14 +3130,8 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-between shrink-0 text-white mt-auto">
-        <div className="flex gap-4 text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          <span>Sessão: Admin_01</span>
-          <span>IP: 192.168.1.45</span>
-          <span>Versão do Layout: V2.04</span>
-        </div>
-        <div className="text-[9px] text-white font-bold uppercase flex items-center gap-2 tracking-wider">
-          <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
-          Módulo de Extração de OCR Ativo
+        <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
+          2026 - v0.0.1 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>
