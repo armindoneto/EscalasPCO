@@ -4421,7 +4421,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* Approval Signatures */}
                   {signers.length > 0 && (
-                    <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-6 gap-x-8 mt-5 print:mt-4 text-center">
+                    <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-12 gap-x-8 mt-5 print:mt-10 text-center">
                       {signers.map((signer) => (
                         <div key={signer.id} className="flex flex-col items-center">
                           <div className="w-64 mb-1 h-12 print:h-5"></div>
@@ -4600,7 +4600,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                     {/* Approval Signatures */}
                     {signers.length > 0 && (
-                      <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-6 gap-x-8 mt-5 print:mt-4 text-center">
+                      <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-12 gap-x-8 mt-5 print:mt-10 text-center">
                         {signers.map((signer) => (
                           <div key={signer.id} className="flex flex-col items-center">
                             <div className="w-64 mb-1 h-12 print:h-5"></div>
