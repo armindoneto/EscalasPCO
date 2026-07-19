@@ -4261,7 +4261,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 
                 {/* SHEET 1: GRADUADOS */}
                 {activeScale === "GRADUADOS" && (
-                  <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-1 text-black">
+                  <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-2 text-black">
                   
                   {/* Official Document Header with Legend */}
                   <div className="flex items-stretch gap-6">
@@ -4421,7 +4421,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* Approval Signatures */}
                   {signers.length > 0 && (
-                    <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-4 gap-x-8 mt-5 print:mt-3 text-center">
+                    <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-6 gap-x-8 mt-5 print:mt-4 text-center">
                       {signers.map((signer) => (
                         <div key={signer.id} className="flex flex-col items-center">
                           <div className="w-64 mb-1 h-12 print:h-5"></div>
@@ -4440,7 +4440,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* SHEET 2: SOLDADOS */}
                   {activeScale === "SOLDADOS" && (
-                    <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-1 text-black">
+                    <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-2 text-black">
                     
                     {/* Official Document Header with Legend */}
                     <div className="flex items-stretch gap-6">
@@ -4600,7 +4600,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                     {/* Approval Signatures */}
                     {signers.length > 0 && (
-                      <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-4 gap-x-8 mt-5 print:mt-3 text-center">
+                      <div className="print-signatures grid grid-cols-3 gap-y-8 print:gap-y-6 gap-x-8 mt-5 print:mt-4 text-center">
                         {signers.map((signer) => (
                           <div key={signer.id} className="flex flex-col items-center">
                             <div className="w-64 mb-1 h-12 print:h-5"></div>

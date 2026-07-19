@@ -59,6 +59,9 @@
     padding: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;
+    border: none !important;
+    outline: none !important;
+    background: white !important;
     overflow: hidden !important;
   }
 
@@ -70,11 +73,13 @@
     max-height: 100% !important;
     display: flex !important;
     flex-direction: column !important;
-    justify-content: space-between !important;
+    justify-content: flex-start !important;
     padding: 0 !important;
     margin: 0 !important;
     border: none !important;
     box-shadow: none !important;
+    outline: none !important;
+    background: white !important;
     overflow: hidden !important;
   }
 
