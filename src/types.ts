@@ -23,6 +23,10 @@ export interface Professional {
   rank?: string;
   specialty?: string;
   sort_order?: number;
+  valid_from_month?: number;
+  valid_from_year?: number;
+  valid_until_month?: number;
+  valid_until_year?: number;
 }
 
 export interface UploadSlot {

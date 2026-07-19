@@ -475,6 +475,9 @@ export default function App() {
   const [addRank, setAddRank] = useState<string>("");
   const [addSpecialty, setAddSpecialty] = useState<string>("");
   const [addName, setAddName] = useState<string>("");
+  const [addInclusionType, setAddInclusionType] = useState<"definitivo" | "partir">("definitivo");
+  const [addStartMonth, setAddStartMonth] = useState<number>(6);
+  const [addStartYear, setAddStartYear] = useState<number>(2026);
 
   // Delete Scales Modal state
   const [isDeleteScalesModalOpen, setIsDeleteScalesModalOpen] = useState<boolean>(false);
@@ -1819,20 +1822,26 @@ export default function App() {
       .reduce((max, p) => Math.max(max, p.sort_order || 0), -1);
 
     const profId = `prof-manual-${Date.now()}`;
+    const validFromM = addInclusionType === "partir" ? addStartMonth : undefined;
+    const validFromY = addInclusionType === "partir" ? addStartYear : undefined;
+
     const newProf: Professional = {
       id: profId,
       name: addName.trim(),
-      role: `${addRank.trim()}:::${addSpecialty.trim()}:::${maxSortOrder + 1}`,
+      role: `${addRank.trim()}:::${addSpecialty.trim()}:::${maxSortOrder + 1}:::${validFromM !== undefined ? validFromM : ""}:::${validFromY !== undefined ? validFromY : ""}::::::`,
       category: activeScale,
       rank: addRank.trim(),
       specialty: addSpecialty.trim(),
       sort_order: maxSortOrder + 1,
+      valid_from_month: validFromM,
+      valid_from_year: validFromY,
     };
 
     setProfessionals((prev) => [...prev, newProf]);
     setAddRank("");
     setAddSpecialty("");
     setAddName("");
+    setAddInclusionType("definitivo");
     setIsAddModalOpen(false);
     setIsDirty(true);
     triggerNotification("success", `Militar "${addRank.trim()} ${addName.trim()}" adicionado com sucesso.`);
@@ -3037,6 +3046,74 @@ export default function App() {
                     className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs font-bold uppercase text-slate-800 focus:bg-white focus:outline-hidden focus:border-indigo-500 transition-all"
                   />
                 </div>
+                
+                {/* Inclusion Type / Validity Period Selectors */}
+                <div className="bg-slate-50 border border-slate-200/60 p-3.5 rounded-md space-y-3">
+                  <span className="block text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                    Vigência de Escala:
+                  </span>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                      <input
+                        type="radio"
+                        name="inclusionType"
+                        value="definitivo"
+                        checked={addInclusionType === "definitivo"}
+                        onChange={() => setAddInclusionType("definitivo")}
+                        className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                      />
+                      <span>Inclusão Definitiva (Sempre Ativo)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-700">
+                      <input
+                        type="radio"
+                        name="inclusionType"
+                        value="partir"
+                        checked={addInclusionType === "partir"}
+                        onChange={() => setAddInclusionType("partir")}
+                        className="w-3.5 h-3.5 text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                      />
+                      <span>Ativo a partir de um mês específico</span>
+                    </label>
+                  </div>
+
+                  {addInclusionType === "partir" && (
+                    <div className="grid grid-cols-2 gap-2 pt-1.5 animate-in fade-in duration-150">
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                          Mês Inicial:
+                        </label>
+                        <select
+                          value={addStartMonth}
+                          onChange={(e) => setAddStartMonth(Number(e.target.value))}
+                          className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold uppercase text-slate-800 focus:outline-hidden focus:border-indigo-500 transition-all cursor-pointer"
+                        >
+                          {MONTHS.map((m) => (
+                            <option key={m.value} value={m.value}>
+                              {m.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-black text-slate-400 uppercase tracking-wider mb-1">
+                          Ano Inicial:
+                        </label>
+                        <select
+                          value={addStartYear}
+                          onChange={(e) => setAddStartYear(Number(e.target.value))}
+                          className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 text-xs font-bold uppercase text-slate-800 focus:outline-hidden focus:border-indigo-500 transition-all cursor-pointer"
+                        >
+                          {YEARS.map((y) => (
+                            <option key={y.value} value={y.value}>
+                              {y.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <button
                     type="button"
@@ -3820,6 +3897,9 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       setAddRank("");
                       setAddSpecialty("");
                       setAddName("");
+                      setAddInclusionType("definitivo");
+                      setAddStartMonth(selectedMonth);
+                      setAddStartYear(selectedYear);
                       setIsAddModalOpen(true);
                     }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] px-4 py-2 rounded uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.98]"
@@ -3834,7 +3914,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-50">
                     <tr>
-                      <th className="px-4 py-3 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10 bg-slate-50 border-r border-slate-200/50 min-w-[210px]">
+                      <th className="px-4 py-3 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10 bg-slate-50 border-r border-slate-200/50 min-w-[250px]">
                         Militar
                       </th>
                       {daysArray.map((dayObj) => (
@@ -3868,8 +3948,8 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       filteredProfessionals.map((prof) => (
                         <tr key={prof.id} className="hover:bg-indigo-50/30 transition-colors bg-white group">
                           {/* Military Name - Sticky Left */}
-                          <td className="px-4 py-2 bg-white sticky left-0 z-10 border-r border-slate-200/80 shadow-[2px_0_5px_rgba(0,0,0,0.01)] flex items-center justify-between group-hover:bg-slate-50 min-w-[210px]">
-                            <div className="truncate max-w-[120px] uppercase text-xs font-bold text-slate-900">
+                          <td className="px-4 py-2 bg-white sticky left-0 z-10 border-r border-slate-200/80 shadow-[2px_0_5px_rgba(0,0,0,0.01)] flex items-center justify-between group-hover:bg-slate-50 min-w-[250px]">
+                            <div className="truncate flex-1 min-w-0 uppercase text-xs font-bold text-slate-900 pr-2">
                               <span className="print:hidden">
                                 {prof.rank ? `${prof.rank} ` : ""}{prof.name}
                               </span>
