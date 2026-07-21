@@ -192,32 +192,18 @@ const getEasterSunday = (year: number): Date => {
   return new Date(year, month - 1, day);
 };
 
-const getCellFontColor = (day: number, month: number, year: number): string => {
-  // Check special purple days first:
-  // 24, 25, 31 de dezembro (month = 11)
-  // 01 de janeiro (month = 0)
-  if ((month === 11 && (day === 24 || day === 25 || day === 31)) || (month === 0 && day === 1)) {
-    return "text-purple-600"; // purple
+const getCellFontColor = (day: number, month: number, year: number, customColor?: "red" | "purple" | "none"): string => {
+  if (customColor === "red") {
+    return "text-red-600";
   }
-
-  // Check Carnival days
-  const easter = getEasterSunday(year);
-  // Carnival days are Saturday to Tuesday (50 to 47 days before Easter)
-  let isCarnaval = false;
-  for (let d = 47; d <= 50; d++) {
-    const carnavDate = new Date(easter.getTime());
-    carnavDate.setDate(easter.getDate() - d);
-    if (carnavDate.getFullYear() === year && carnavDate.getMonth() === month && carnavDate.getDate() === day) {
-      isCarnaval = true;
-      break;
-    }
-  }
-
-  if (isCarnaval) {
+  if (customColor === "purple") {
     return "text-purple-600";
   }
+  if (customColor === "none") {
+    return "text-slate-900";
+  }
 
-  // Check weekday / weekend
+  // Default: Saturdays and Sundays are red.
   const date = new Date(year, month, day);
   const dayOfWeek = date.getDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -265,8 +251,9 @@ const parseLoadedProfessionals = (raw: any[]): Professional[] => {
     }
     return {
       ...p,
-      rank,
-      specialty,
+      name: capitalizeName(p.name || ""),
+      rank: capitalizeName(rank),
+      specialty: capitalizeName(specialty),
       sort_order,
       valid_from_month,
       valid_from_year,
@@ -279,8 +266,8 @@ const parseLoadedProfessionals = (raw: any[]): Professional[] => {
 const mapProfessionalsToDb = (profs: any[]) => {
   return profs.map(p => {
     const parts = [
-      p.rank || "",
-      p.specialty || "",
+      capitalizeName(p.rank || ""),
+      capitalizeName(p.specialty || ""),
       p.sort_order || 0,
       p.valid_from_month !== undefined ? p.valid_from_month : "",
       p.valid_from_year !== undefined ? p.valid_from_year : "",
@@ -289,7 +276,7 @@ const mapProfessionalsToDb = (profs: any[]) => {
     ];
     return {
       id: p.id,
-      name: p.name,
+      name: capitalizeName(p.name || ""),
       role: parts.join(":::"),
       category: p.category
     };
@@ -342,6 +329,11 @@ const healLoadedData = (rawProfs: any[], rawCells: any, m: number, y: number) =>
   const parsedProfs = parseLoadedProfessionals(rawProfs);
   const { healedCells, changed } = healCellState(rawCells, parsedProfs, m, y);
   return { parsedProfs, healedCells, changed };
+};
+
+const capitalizeName = (name: string): string => {
+  if (!name) return "";
+  return name.trim().toUpperCase();
 };
 
 const normalizeStr = (str: string) => {
@@ -439,6 +431,7 @@ export default function App() {
   // Consolidated Professionals and cell duties state
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [cellState, setCellState] = useState<{ [profId: string]: { [day: number]: string } }>({});
+  const [dayCustomColors, setDayCustomColors] = useState<Record<number, "red" | "purple" | "none">>({});
 
   // Active scale category: GRADUADOS or SOLDADOS
   const [activeScale, setActiveScale] = useState<"GRADUADOS" | "SOLDADOS">("GRADUADOS");
@@ -618,6 +611,7 @@ export default function App() {
           const { parsedProfs, healedCells, changed } = healLoadedData(mData || [], loadedCells, selectedMonth, selectedYear);
           setProfessionals(parsedProfs);
           setCellState(healedCells);
+          setDayCustomColors(healedCells.__dayCustomColors || {});
 
           // Extract signers (prefer month-specific, fallback to global-signatures, fallback to localStorage, fallback to default)
           let globalGraduados: Signer[] | null = null;
@@ -707,6 +701,7 @@ export default function App() {
             const { parsedProfs, healedCells, changed } = healLoadedData(loadedProfs, loadedCells, selectedMonth, selectedYear);
             setProfessionals(parsedProfs);
             setCellState(healedCells);
+            setDayCustomColors(healedCells.__dayCustomColors || {});
 
             // Extract signers (prefer month-specific, fallback to global-signatures, fallback to localStorage, fallback to default)
             let globalGraduados: Signer[] | null = null;
@@ -762,6 +757,7 @@ export default function App() {
             const { parsedProfs, healedCells, changed } = healLoadedData(localProfsRaw, localCellsRaw, selectedMonth, selectedYear);
             setProfessionals(parsedProfs);
             setCellState(healedCells);
+            setDayCustomColors(healedCells.__dayCustomColors || {});
 
             // Extract signers
             if (localCellsRaw.__graduadosSigners) {
@@ -804,6 +800,7 @@ export default function App() {
         const { parsedProfs, healedCells, changed } = healLoadedData(localProfsRaw, localCellsRaw, selectedMonth, selectedYear);
         setProfessionals(parsedProfs);
         setCellState(healedCells);
+        setDayCustomColors(healedCells.__dayCustomColors || {});
 
         // Extract signers
         if (localCellsRaw.__graduadosSigners) {
@@ -845,6 +842,7 @@ export default function App() {
       ...cellState,
       __graduadosSigners: graduadosSigners,
       __soldadosSigners: soldadosSigners,
+      __dayCustomColors: dayCustomColors,
     };
 
     // LocalStorage save is immediate so local data is always up-to-date
@@ -947,7 +945,7 @@ export default function App() {
     }, 1500); // 1.5 seconds debounce
 
     return () => clearTimeout(handler);
-  }, [professionals, cellState, graduadosSigners, soldadosSigners, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
+  }, [professionals, cellState, dayCustomColors, graduadosSigners, soldadosSigners, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
 
   // Save current data state to Supabase or LocalStorage
   const handleSaveData = async () => {
@@ -957,6 +955,7 @@ export default function App() {
         ...cellState,
         __graduadosSigners: graduadosSigners,
         __soldadosSigners: soldadosSigners,
+        __dayCustomColors: dayCustomColors,
       };
 
       // Always save a local copy immediately first to prevent ANY data loss
@@ -1825,13 +1824,17 @@ export default function App() {
     const validFromM = addInclusionType === "partir" ? addStartMonth : undefined;
     const validFromY = addInclusionType === "partir" ? addStartYear : undefined;
 
+    const cleanRank = capitalizeName(addRank);
+    const cleanSpecialty = capitalizeName(addSpecialty);
+    const cleanName = capitalizeName(addName);
+
     const newProf: Professional = {
       id: profId,
-      name: addName.trim(),
-      role: `${addRank.trim()}:::${addSpecialty.trim()}:::${maxSortOrder + 1}:::${validFromM !== undefined ? validFromM : ""}:::${validFromY !== undefined ? validFromY : ""}::::::`,
+      name: cleanName,
+      role: `${cleanRank}:::${cleanSpecialty}:::${maxSortOrder + 1}:::${validFromM !== undefined ? validFromM : ""}:::${validFromY !== undefined ? validFromY : ""}::::::`,
       category: activeScale,
-      rank: addRank.trim(),
-      specialty: addSpecialty.trim(),
+      rank: cleanRank,
+      specialty: cleanSpecialty,
       sort_order: maxSortOrder + 1,
       valid_from_month: validFromM,
       valid_from_year: validFromY,
@@ -1922,9 +1925,9 @@ export default function App() {
           prof.id === editingProfId
             ? {
                 ...prof,
-                name: editName.trim(),
-                rank: editRank.trim(),
-                specialty: editSpecialty.trim(),
+                name: capitalizeName(editName),
+                rank: capitalizeName(editRank),
+                specialty: capitalizeName(editSpecialty),
                 category: editCategory,
               }
             : prof
@@ -1949,9 +1952,9 @@ export default function App() {
 
         const updatedOriginal: Professional = {
           ...p,
-          name: editName.trim(),
-          rank: editRank.trim(),
-          specialty: editSpecialty.trim(),
+          name: capitalizeName(editName),
+          rank: capitalizeName(editRank),
+          specialty: capitalizeName(editSpecialty),
           category: editCategory,
           valid_from_month: editMonth,
           valid_from_year: editYear,
@@ -1972,9 +1975,9 @@ export default function App() {
             prof.id === editingProfId
               ? {
                   ...prof,
-                  name: editName.trim(),
-                  rank: editRank.trim(),
-                  specialty: editSpecialty.trim(),
+                  name: capitalizeName(editName),
+                  rank: capitalizeName(editRank),
+                  specialty: capitalizeName(editSpecialty),
                   category: editCategory,
                   valid_from_month: editMonth,
                   valid_from_year: editYear,
@@ -2504,7 +2507,7 @@ export default function App() {
 
                 if (originalVal) {
                   // Determine font color dynamically matching getCellFontColor
-                  const fontColorClass = getCellFontColor(dayObj.day, selectedMonth, selectedYear);
+                  const fontColorClass = getCellFontColor(dayObj.day, selectedMonth, selectedYear, dayCustomColors[dayObj.day]);
                   let fontColorRgb = "000000";
                   if (fontColorClass === "text-red-600") {
                     fontColorRgb = "CC0000";
@@ -3509,10 +3512,46 @@ Data;Escala;Escalado;Nome do Posto;
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs no-print">
           <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-lg w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="p-6">
-              <h3 className="text-sm font-black text-indigo-600 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-indigo-100 pb-3">
-                <Calendar className="w-5 h-5 text-indigo-500" />
-                Escala do Dia {selectedDayForPopup.toString().padStart(2, "0")}/{ (selectedMonth + 1).toString().padStart(2, "0") }/{selectedYear}
-              </h3>
+              <div className="flex items-center justify-between border-b border-indigo-100 pb-3 mb-2">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-indigo-500" />
+                  <span className="text-sm font-black text-indigo-600 uppercase tracking-wider">
+                    Dia {selectedDayForPopup.toString().padStart(2, "0")}/{ (selectedMonth + 1).toString().padStart(2, "0") }/{selectedYear}
+                  </span>
+                </div>
+                
+                {/* Circular color override buttons */}
+                <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-full border border-slate-100">
+                  <button
+                    onClick={() => {
+                      const curr = dayCustomColors[selectedDayForPopup] || "none";
+                      const next = curr === "red" ? "none" : "red";
+                      setDayCustomColors(prev => ({ ...prev, [selectedDayForPopup]: next }));
+                      setIsDirty(true);
+                    }}
+                    title="Destacar dia em Vermelho"
+                    className={`w-5 h-5 rounded-full bg-red-600 cursor-pointer transition-all hover:scale-110 ${
+                      dayCustomColors[selectedDayForPopup] === "red" 
+                        ? "ring-2 ring-red-400 ring-offset-1 scale-110 border border-white" 
+                        : "border border-slate-300 opacity-60 hover:opacity-100"
+                    }`}
+                  />
+                  <button
+                    onClick={() => {
+                      const curr = dayCustomColors[selectedDayForPopup] || "none";
+                      const next = curr === "purple" ? "none" : "purple";
+                      setDayCustomColors(prev => ({ ...prev, [selectedDayForPopup]: next }));
+                      setIsDirty(true);
+                    }}
+                    title="Destacar dia em Roxo"
+                    className={`w-5 h-5 rounded-full bg-purple-600 cursor-pointer transition-all hover:scale-110 ${
+                      dayCustomColors[selectedDayForPopup] === "purple" 
+                        ? "ring-2 ring-purple-400 ring-offset-1 scale-110 border border-white" 
+                        : "border border-slate-300 opacity-60 hover:opacity-100"
+                    }`}
+                  />
+                </div>
+              </div>
               
               <div className="text-xs text-slate-600 space-y-4 font-medium leading-relaxed mt-4 max-h-[380px] overflow-y-auto pr-1">
                 {(() => {
@@ -3647,7 +3686,11 @@ Data;Escala;Escalado;Nome do Posto;
                     const localProfs = localStorage.getItem("military_professionals");
                     const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
                     if (localProfs) setProfessionals(parseLoadedProfessionals(JSON.parse(localProfs)));
-                    if (localCells) setCellState(JSON.parse(localCells));
+                    if (localCells) {
+                      const parsedCells = JSON.parse(localCells);
+                      setCellState(parsedCells);
+                      setDayCustomColors(parsedCells.__dayCustomColors || {});
+                    }
                     triggerNotification("success", "Dados carregados do backup local com sucesso!");
                   }}
                   className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded transition-colors cursor-pointer"
@@ -4032,7 +4075,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                               : isExpediente
                               ? "text-slate-900"
                               : (isFilled 
-                                  ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
+                                  ? getCellFontColor(dayObj.day, selectedMonth, selectedYear, dayCustomColors[dayObj.day]) 
                                   : "text-slate-300");
 
                             const colorClass = `${bgClass} ${textClass}`;
@@ -4474,7 +4517,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                   : isExpediente
                                   ? "text-slate-900"
                                   : (hasVal 
-                                      ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
+                                      ? getCellFontColor(dayObj.day, selectedMonth, selectedYear, dayCustomColors[dayObj.day]) 
                                       : "text-slate-300");
 
                                 return (
@@ -4653,7 +4696,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                     : isExpediente
                                     ? "text-slate-900"
                                     : (hasVal 
-                                        ? getCellFontColor(dayObj.day, selectedMonth, selectedYear) 
+                                        ? getCellFontColor(dayObj.day, selectedMonth, selectedYear, dayCustomColors[dayObj.day]) 
                                         : "text-slate-300");
 
                                   return (
@@ -4709,7 +4752,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          2026 - v1.0.0 - Desenvolvido por Armindo Neto
+          2026 - v1.0.1 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>
