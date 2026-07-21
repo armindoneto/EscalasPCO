@@ -26,7 +26,9 @@ import {
   ExternalLink,
   ArrowUp,
   ArrowDown,
-  Pencil
+  Pencil,
+  Eye,
+  EyeOff
 } from "lucide-react";
 import { 
   DEFAULT_SLOTS, 
@@ -150,6 +152,82 @@ const SCALE_OPTIONS = [
   { code: "MC", label: "Motorista de Coletivo" },
   { code: "AC", label: "SD + TD Acumulado" },
 ];
+
+const GRADUADOS_CONTROL_SERVICES = [
+  { code: "SD", label: "SD - SEGURANÇA E DEFESA", minRequired: 1 },
+  { code: "TD", label: "TD - TÉCNICO DE DIA", minRequired: 1 },
+  { code: "KF", label: "KF - OPERADOR DE KF", minRequired: 1 },
+  { code: "MC", label: "MC - MOTORISTA DE COLETIVO", minRequired: 2 },
+];
+
+const SOLDADOS_CONTROL_SERVICES = [
+  { code: "ST", label: "ST - SENTINELA", minRequired: 2 },
+  { code: "MD", label: "MD - MOTORISTA DE DIA", minRequired: 1 },
+  { code: "PV", label: "PV - PERMANÊNCIA À VILA MILITAR", minRequired: 1 },
+  { code: "SM", label: "SM - SOBREAVISO DE MOTORISTA DE DIA", minRequired: 1 },
+  { code: "SS", label: "SS - SOBREAVISO DE SENTINELA E PERMANÊNCIA", minRequired: 1 },
+];
+
+const getControlCountForDay = (
+  profsList: Professional[],
+  cellState: { [profId: string]: { [day: number]: string } },
+  serviceCode: string,
+  dayNum: number
+): number => {
+  let count = 0;
+  for (const prof of profsList) {
+    const rawVal = cellState[prof.id]?.[dayNum] || "";
+    if (!rawVal) continue;
+    const norm = rawVal.toUpperCase().trim().replace(/[*]/g, "").trim();
+    if (!norm) continue;
+
+    if (serviceCode === "SD") {
+      if (norm === "SD" || norm === "AC" || norm.startsWith("SD") || norm.startsWith("AC")) {
+        count++;
+      }
+    } else if (serviceCode === "TD") {
+      if (norm === "TD" || norm === "AC" || norm.startsWith("TD") || norm.startsWith("AC")) {
+        count++;
+      }
+    } else {
+      if (norm === serviceCode || norm.startsWith(serviceCode)) {
+        count++;
+      }
+    }
+  }
+  return count;
+};
+
+const getProfServiceCountInMonth = (
+  profId: string,
+  cellState: { [profId: string]: { [day: number]: string } },
+  serviceCode: string,
+  daysInMonth: number
+): number => {
+  let count = 0;
+  const profCells = cellState[profId] || {};
+  for (let d = 1; d <= daysInMonth; d++) {
+    const rawVal = profCells[d] || "";
+    if (!rawVal) continue;
+    const norm = rawVal.toUpperCase().trim().replace(/[*]/g, "").trim();
+    if (!norm) continue;
+
+    if (serviceCode === "SD") {
+      if (norm === "SD" || norm === "AC" || norm.startsWith("SD") || norm.startsWith("AC")) {
+        count++;
+      }
+    } else if (serviceCode === "TD") {
+      if (norm === "TD" || norm === "AC" || norm.startsWith("TD") || norm.startsWith("AC")) {
+        count++;
+      }
+    } else {
+      if (norm === serviceCode || norm.startsWith(serviceCode)) {
+        count++;
+      }
+    }
+  }
+  return count;
+};
 
 const getScaleSigla = (roleText: string): string => {
   const clean = (roleText || "").toUpperCase().trim();
@@ -435,6 +513,9 @@ export default function App() {
 
   // Active scale category: GRADUADOS or SOLDADOS
   const [activeScale, setActiveScale] = useState<"GRADUADOS" | "SOLDADOS">("GRADUADOS");
+
+  // Show/Hide Efetivo Control rows in Consolidated Scale
+  const [showControl, setShowControl] = useState<boolean>(false);
 
   // Custom confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -2377,10 +2458,13 @@ export default function App() {
         return;
       }
 
-      // 1. Headers: Military Column followed by day numbers (without day of week as requested)
+      const controlServices = activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES;
+
+      // 1. Headers: Military Column followed by day numbers (and summary columns if showControl)
       const headers = [
         activeScale === "GRADUADOS" ? "MILITARES" : "MILITARES / CIVIS",
-        ...daysArray.map((dayObj) => String(dayObj.day))
+        ...daysArray.map((dayObj) => String(dayObj.day)),
+        ...(showControl ? controlServices.map((s) => s.code) : [])
       ];
 
       // 2. Rows: For each professional, get name and all day states
@@ -2394,11 +2478,22 @@ export default function App() {
           }
           return val;
         });
-        return [profName, ...dayValues];
+        const summaryValues = showControl
+          ? controlServices.map((srv) => getProfServiceCountInMonth(prof.id, cellState, srv.code, daysInMonth))
+          : [];
+        return [profName, ...dayValues, ...summaryValues];
       });
 
       // 3. Assemble sheet data
       const sheetData = [headers, ...rows];
+
+      if (showControl) {
+        sheetData.push(["CONTROLE DE EFETIVO DIÁRIO", ...daysArray.map(() => "")]);
+        for (const srv of controlServices) {
+          const rowValues = daysArray.map(dayObj => getControlCountForDay(activeProfs, cellState, srv.code, dayObj.day));
+          sheetData.push([srv.label, ...rowValues]);
+        }
+      }
 
       // 4. Create SheetJS worksheet
       const ws = XLSX.utils.aoa_to_sheet(sheetData);
@@ -2443,7 +2538,7 @@ export default function App() {
               };
               cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
               cell.s.alignment.horizontal = "left";
-            } else {
+            } else if (c <= daysInMonth) {
               // Day headers: Blue for weekdays, Red for weekends
               const dayIndex = c - 1;
               const dayObj = daysArray[dayIndex];
@@ -2454,75 +2549,148 @@ export default function App() {
                 fgColor: { rgb: headerBgColor }
               };
               cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+            } else {
+              // Summary column headers (e.g. SD, TD, KF, MC)
+              cell.s.fill = {
+                patternType: "solid",
+                fgColor: { rgb: "FACC15" }
+              };
+              cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "000000" } };
             }
           } else {
             // Body Rows Style
             const profIndex = r - 1;
-            const prof = activeProfs[profIndex];
 
-            // Alternating row background: Even rows are white ("FFFFFF"), odd rows are medium gray ("B7B7B7")
-            const rowBaseColor = profIndex % 2 === 0 ? "FFFFFF" : "B7B7B7";
-
-            if (c === 0) {
-              // Military Name Column
-              cell.s.fill = {
-                patternType: "solid",
-                fgColor: { rgb: rowBaseColor }
-              };
-              cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "1A1A1A" } };
-              cell.s.alignment.horizontal = "left";
-            } else {
-              // Calendar cell values
-              const dayIndex = c - 1;
-              const dayObj = daysArray[dayIndex];
-              const originalVal = cellState[prof.id]?.[dayObj.day] || "";
-
-              if (originalVal === "INDISP") {
-                // Red block for Indisponibilidade
+            if (showControl && profIndex >= activeProfs.length) {
+              // Control rows
+              const controlRowOffset = profIndex - activeProfs.length;
+              if (controlRowOffset === 0) {
+                // "CONTROLE DE EFETIVO DIÁRIO" Section Header Row
                 cell.s.fill = {
                   patternType: "solid",
-                  fgColor: { rgb: "DC2626" }
+                  fgColor: { rgb: "0F172A" }
                 };
                 cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
-              } else if (originalVal === "PARECER") {
-                // Orange block for Parecer
-                cell.s.fill = {
-                  patternType: "solid",
-                  fgColor: { rgb: "FB923C" }
-                };
-                cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
-              } else if (originalVal === "EXPEDIENTE") {
-                // Yellow block for Expediente
-                cell.s.fill = {
-                  patternType: "solid",
-                  fgColor: { rgb: "FACC15" }
-                };
-                cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "1A1A1A" } };
+                if (c === 0) {
+                  cell.s.alignment.horizontal = "left";
+                }
               } else {
-                // Regular scale cell (e.g. "SV", "SD", etc. or empty)
+                // Service Control Rows
+                const srv = controlServices[controlRowOffset - 1];
+                if (c === 0) {
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: "F8FAFC" }
+                  };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "0F172A" } };
+                  cell.s.alignment.horizontal = "left";
+                } else if (c <= daysInMonth) {
+                  const dayIndex = c - 1;
+                  const dayObj = daysArray[dayIndex];
+                  const count = getControlCountForDay(activeProfs, cellState, srv.code, dayObj.day);
+                  const isOk = count >= srv.minRequired;
+                  const bgRgb = isOk ? "059669" : "DC2626";
+
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: bgRgb }
+                  };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+                } else {
+                  // Summary columns on control rows
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: "F1F5F9" }
+                  };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "64748B" } };
+                }
+              }
+            } else {
+              const prof = activeProfs[profIndex];
+
+              // Alternating row background: Even rows are white ("FFFFFF"), odd rows are medium gray ("B7B7B7")
+              const rowBaseColor = profIndex % 2 === 0 ? "FFFFFF" : "B7B7B7";
+
+              if (c === 0) {
+                // Military Name Column
                 cell.s.fill = {
                   patternType: "solid",
                   fgColor: { rgb: rowBaseColor }
                 };
+                cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "1A1A1A" } };
+                cell.s.alignment.horizontal = "left";
+              } else if (c <= daysInMonth) {
+                // Calendar cell values
+                const dayIndex = c - 1;
+                const dayObj = daysArray[dayIndex];
+                const originalVal = cellState[prof.id]?.[dayObj.day] || "";
 
-                if (originalVal) {
-                  // Determine font color dynamically matching getCellFontColor
-                  const fontColorClass = getCellFontColor(dayObj.day, selectedMonth, selectedYear, dayCustomColors[dayObj.day]);
-                  let fontColorRgb = "000000";
-                  if (fontColorClass === "text-red-600") {
-                    fontColorRgb = "CC0000";
-                  } else if (fontColorClass === "text-purple-600") {
-                    fontColorRgb = "7F00FF";
-                  }
-
-                  cell.s.font = {
-                    name: "Arial",
-                    sz: 10,
-                    bold: true,
-                    color: { rgb: fontColorRgb }
+                if (originalVal === "INDISP") {
+                  // Red block for Indisponibilidade
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: "DC2626" }
                   };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+                } else if (originalVal === "PARECER") {
+                  // Orange block for Parecer
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: "FB923C" }
+                  };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
+                } else if (originalVal === "EXPEDIENTE") {
+                  // Yellow block for Expediente
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: "FACC15" }
+                  };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "1A1A1A" } };
                 } else {
-                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "A3A3A3" } };
+                  // Regular scale cell (e.g. "SV", "SD", etc. or empty)
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: rowBaseColor }
+                  };
+
+                  if (originalVal) {
+                    // Determine font color dynamically matching getCellFontColor
+                    const fontColorClass = getCellFontColor(dayObj.day, selectedMonth, selectedYear, dayCustomColors[dayObj.day]);
+                    let fontColorRgb = "000000";
+                    if (fontColorClass === "text-red-600") {
+                      fontColorRgb = "CC0000";
+                    } else if (fontColorClass === "text-purple-600") {
+                      fontColorRgb = "7F00FF";
+                    }
+
+                    cell.s.font = {
+                      name: "Arial",
+                      sz: 10,
+                      bold: true,
+                      color: { rgb: fontColorRgb }
+                    };
+                  } else {
+                    cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "A3A3A3" } };
+                  }
+                }
+              } else {
+                // Summary columns for prof rows
+                const srvIndex = c - 1 - daysInMonth;
+                const srv = controlServices[srvIndex];
+                const count = getProfServiceCountInMonth(prof.id, cellState, srv ? srv.code : "", daysInMonth);
+
+                if (count > 0) {
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: "FACC15" } // Yellow fill
+                  };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "000000" } };
+                } else {
+                  cell.s.fill = {
+                    patternType: "solid",
+                    fgColor: { rgb: "F8FAFC" }
+                  };
+                  cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "94A3B8" } };
                 }
               }
             }
@@ -3905,9 +4073,19 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
           {activeTab === "grid" && (
             <div className="bg-white border border-slate-200 rounded shadow-sm flex-1 flex flex-col overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
-                  ESCALA ({activeScale}): <span className="text-indigo-600 italic font-display">{MONTHS[selectedMonth].label} {selectedYear}</span>
-                </h3>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">
+                    ESCALA ({activeScale}): <span className="text-indigo-600 italic font-display">{MONTHS[selectedMonth].label} {selectedYear}</span>
+                  </h3>
+                  <button
+                    onClick={() => setShowControl((prev) => !prev)}
+                    className="no-print cursor-pointer inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold tracking-wider uppercase border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 transition-all shadow-2xs active:scale-95"
+                    title={showControl ? "Ocultar Controle" : "Mostrar Controle"}
+                  >
+                    {showControl ? <EyeOff className="w-3.5 h-3.5 text-indigo-600" /> : <Eye className="w-3.5 h-3.5 text-indigo-600" />}
+                    <span>{showControl ? "Ocultar Controle" : "Mostrar Controle"}</span>
+                  </button>
+                </div>
 
                 <div className="flex flex-wrap items-center gap-3">
                   {/* Text query search */}
@@ -3973,13 +4151,22 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                           <div className="text-[10px]">{dayObj.day.toString().padStart(2, "0")}</div>
                         </th>
                       ))}
+                      {showControl && (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((srv) => (
+                        <th
+                          key={srv.code}
+                          title={srv.label}
+                          className="px-2 py-2 border-b border-amber-300 bg-amber-400 text-slate-900 text-[11px] font-bold uppercase tracking-wider text-center font-mono border-l border-amber-500 min-w-[36px]"
+                        >
+                          {srv.code}
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredProfessionals.length === 0 ? (
                       <tr>
                         <td 
-                          colSpan={daysInMonth + 1} 
+                          colSpan={daysInMonth + 1 + (showControl ? (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES.length : SOLDADOS_CONTROL_SERVICES.length) : 0)} 
                           className="py-16 text-center text-slate-400 font-bold uppercase text-[11px] tracking-wider bg-white"
                         >
                           {professionals.filter(p => p.category === activeScale).length === 0 
@@ -4330,8 +4517,63 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                               </td>
                             );
                           })}
+                          {/* Summary columns when control is visible */}
+                          {showControl && (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((srv) => {
+                            const count = getProfServiceCountInMonth(prof.id, cellState, srv.code, daysInMonth);
+                            return (
+                              <td
+                                key={srv.code}
+                                className={`p-1 text-center font-mono font-bold text-xs border-l border-slate-200/80 ${
+                                  count > 0 ? "bg-amber-300 text-slate-900 border-amber-400" : "text-slate-300 bg-slate-50/30"
+                                }`}
+                              >
+                                {count}
+                              </td>
+                            );
+                          })}
                         </tr>
                       ))
+                    )}
+
+                    {/* Control Rows for Grid View */}
+                    {showControl && (
+                      <>
+                        <tr className="bg-slate-900 text-white font-bold uppercase border-t-2 border-b-2 border-slate-900">
+                          <td 
+                            colSpan={daysInMonth + 1 + (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES.length : SOLDADOS_CONTROL_SERVICES.length)} 
+                            className="px-4 py-2 text-left font-bold text-white uppercase tracking-wider text-xs sticky left-0 z-10 bg-slate-900" 
+                          >
+                            CONTROLE DE EFETIVO DIÁRIO
+                          </td>
+                        </tr>
+                        {(activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((srv) => (
+                          <tr key={srv.code} className="bg-slate-50 border-b border-slate-200 hover:bg-slate-100">
+                            <td 
+                              className="px-4 py-2 font-bold text-slate-800 text-xs uppercase sticky left-0 z-10 bg-slate-50 border-r border-slate-200/80 shadow-[2px_0_5px_rgba(0,0,0,0.01)] min-w-[250px] truncate"
+                            >
+                              {srv.label}
+                            </td>
+                            {daysArray.map((dayObj) => {
+                              const activeProfs = activeScale === "GRADUADOS" ? sortedGraduados : sortedSoldados;
+                              const count = getControlCountForDay(activeProfs, cellState, srv.code, dayObj.day);
+                              const isOk = count >= srv.minRequired;
+                              return (
+                                <td
+                                  key={dayObj.day}
+                                  className={`p-1 text-center font-mono font-bold text-xs border-r border-slate-200 ${
+                                    isOk ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+                                  }`}
+                                >
+                                  {count}
+                                </td>
+                              );
+                            })}
+                            {(activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((s) => (
+                              <td key={s.code} className="bg-slate-100/80 border-l border-slate-200 text-center text-slate-400 text-xs font-mono">-</td>
+                            ))}
+                          </tr>
+                        ))}
+                      </>
                     )}
                   </tbody>
                 </table>
@@ -4752,7 +4994,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          2026 - v1.0.1 - Desenvolvido por Armindo Neto
+          2026 - v1.0.2 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>
