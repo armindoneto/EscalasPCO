@@ -2762,7 +2762,7 @@ export default function App() {
     const warName = signer.warName;
     const rank = signer.rank;
     
-    const rankSuffix = rank ? ` - ${rank}` : "";
+    const rankSuffix = rank ? ` ${rank}` : "";
     
     if (!warName) {
       return (
