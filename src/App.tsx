@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import XLSX from "xlsx-js-style";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import { 
   FileSpreadsheet, 
   UploadCloud, 
@@ -28,7 +30,8 @@ import {
   ArrowDown,
   Pencil,
   Eye,
-  EyeOff
+  EyeOff,
+  Loader2
 } from "lucide-react";
 import { 
   DEFAULT_SLOTS, 
@@ -576,8 +579,9 @@ export default function App() {
   const [deleteMonth, setDeleteMonth] = useState<number>(selectedMonth);
   const [deleteYear, setDeleteYear] = useState<number>(selectedYear);
 
-  // Print Iframe Warning Modal state
+  // Print / PDF state
   const [isPrintIframeModalOpen, setIsPrintIframeModalOpen] = useState<boolean>(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
 
   // CSV Help Modal state
   const [isCsvHelpModalOpen, setIsCsvHelpModalOpen] = useState<boolean>(false);
@@ -2439,14 +2443,90 @@ export default function App() {
     triggerNotification("success", "Exportação para Excel (CSV) concluída com sucesso!");
   };
 
-  // Trigger browser print
-  const handlePrint = () => {
-    const isInIframe = typeof window !== "undefined" && window.self !== window.top;
-    if (isInIframe) {
-      setIsPrintIframeModalOpen(true);
-    } else {
-      window.print();
+  // Export report as A4 Landscape PDF directly
+  const handleExportPdf = async () => {
+    if (isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    triggerNotification("info", "Gerando arquivo PDF A4 Paisagem...");
+
+    try {
+      if (activeTab !== "report") {
+        setActiveTab("report");
+        await new Promise((r) => setTimeout(r, 200));
+      }
+
+      const printElement = document.getElementById("report-print-sheet");
+      if (!printElement) {
+        throw new Error("Elemento do relatório não foi encontrado.");
+      }
+
+      const canvas = await html2canvas(printElement, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        windowWidth: 1200,
+        logging: false,
+      });
+
+      const imgData = canvas.toDataURL("image/png");
+
+      const pdf = new jsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a4"
+      });
+
+      const pdfWidth = 297;
+      const pdfHeight = 210;
+
+      const marginX = 5;
+      const marginY = 5;
+      const availableWidth = pdfWidth - marginX * 2;
+      const availableHeight = pdfHeight - marginY * 2;
+
+      const imgWidth = availableWidth;
+      let imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+      if (imgHeight <= availableHeight) {
+        const offsetY = (pdfHeight - imgHeight) / 2;
+        pdf.addImage(imgData, "PNG", marginX, offsetY, imgWidth, imgHeight);
+      } else {
+        if (imgHeight <= availableHeight * 1.15) {
+          const scaleRatio = availableHeight / imgHeight;
+          const scaledWidth = imgWidth * scaleRatio;
+          const scaledMarginX = (pdfWidth - scaledWidth) / 2;
+          pdf.addImage(imgData, "PNG", scaledMarginX, marginY, scaledWidth, availableHeight);
+        } else {
+          let heightLeft = imgHeight;
+          let position = marginY;
+
+          pdf.addImage(imgData, "PNG", marginX, position, imgWidth, imgHeight);
+          heightLeft -= availableHeight;
+
+          while (heightLeft > 0) {
+            position = heightLeft - imgHeight + marginY;
+            pdf.addPage();
+            pdf.addImage(imgData, "PNG", marginX, position, imgWidth, imgHeight);
+            heightLeft -= availableHeight;
+          }
+        }
+      }
+
+      const fileName = `Escala_${activeScale}_${MONTHS[selectedMonth].label.toUpperCase()}_${selectedYear}.pdf`;
+      pdf.save(fileName);
+
+      triggerNotification("success", `Relatório PDF (${fileName}) gerado e baixado em A4 paisagem!`);
+    } catch (err: any) {
+      console.error("Erro ao gerar PDF:", err);
+      triggerNotification("error", `Falha ao gerar PDF: ${err?.message || "Erro desconhecido"}`);
+    } finally {
+      setIsGeneratingPdf(false);
     }
+  };
+
+  // Trigger print / export PDF
+  const handlePrint = () => {
+    handleExportPdf();
   };
 
   // Download .xlsx spreadsheet of the active scale with layout identical to print
@@ -4606,10 +4686,12 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     Assinaturas
                   </button>
                   <button
-                    onClick={handlePrint}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer"
+                    onClick={handleExportPdf}
+                    disabled={isGeneratingPdf}
+                    className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
                   >
-                    Imprimir Relatório (PDF)
+                    {isGeneratingPdf ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                    {isGeneratingPdf ? "Gerando PDF..." : "Baixar Relatório (PDF A4)"}
                   </button>
                   <button
                     onClick={handleDownloadXlsx}
@@ -4626,7 +4708,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                 
                 {/* SHEET 1: GRADUADOS */}
                 {activeScale === "GRADUADOS" && (
-                  <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-2 text-black">
+                  <div id="report-print-sheet" className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-2 text-black">
                   
                   {/* Official Document Header with Legend */}
                   <div className="flex items-stretch gap-6">
@@ -4805,7 +4887,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                   {/* SHEET 2: SOLDADOS */}
                   {activeScale === "SOLDADOS" && (
-                    <div className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-2 text-black">
+                    <div id="report-print-sheet" className="p-8 rounded-sm bg-white shadow-md print:shadow-none print:border-none print:p-0 w-[1120px] max-w-[1120px] print:w-full print:max-w-full flex flex-col gap-3 print:gap-2 text-black">
                     
                     {/* Official Document Header with Legend */}
                     <div className="flex items-stretch gap-6">
