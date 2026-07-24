@@ -198,6 +198,20 @@ const getControlCountForDay = (
   return count;
 };
 
+const isControlCellValid = (serviceCode: string, count: number, isWeekend: boolean): boolean => {
+  const code = serviceCode.toUpperCase().trim();
+  if (code === "MC") {
+    if (isWeekend) {
+      return count === 0;
+    }
+    return count === 2;
+  }
+  if (code === "ST") {
+    return count === 2;
+  }
+  return count === 1;
+};
+
 const getProfServiceCountInMonth = (
   profId: string,
   cellState: { [profId: string]: { [day: number]: string } },
@@ -2588,7 +2602,7 @@ export default function App() {
                   const dayIndex = c - 1;
                   const dayObj = daysArray[dayIndex];
                   const count = getControlCountForDay(activeProfs, cellState, srv.code, dayObj.day);
-                  const isOk = count >= srv.minRequired;
+                  const isOk = isControlCellValid(srv.code, count, dayObj.isWeekend);
                   const bgRgb = isOk ? "059669" : "DC2626";
 
                   cell.s.fill = {
@@ -4556,7 +4570,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                             {daysArray.map((dayObj) => {
                               const activeProfs = activeScale === "GRADUADOS" ? sortedGraduados : sortedSoldados;
                               const count = getControlCountForDay(activeProfs, cellState, srv.code, dayObj.day);
-                              const isOk = count >= srv.minRequired;
+                              const isOk = isControlCellValid(srv.code, count, dayObj.isWeekend);
                               return (
                                 <td
                                   key={dayObj.day}
@@ -4587,15 +4601,13 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
               
               {/* Export Control Panel - Hidden in Print */}
               <div className="no-print bg-slate-50 border border-slate-200 p-4 rounded flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-                <div className="flex items-start gap-2.5">
-                  <div className="p-2 bg-indigo-600 text-white rounded">
-                    <FileText className="w-5 h-5" />
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-600 text-white rounded-lg flex items-center justify-center shrink-0">
+                    <FileText className="w-6 h-6" />
                   </div>
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Visualização de Impressão da Escala
-                    </h3>
-                  </div>
+                  <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-wider leading-none">
+                    Visualização de Impressão da Escala
+                  </h3>
                 </div>
 
                 <div className="flex gap-2">
@@ -4994,7 +5006,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          2026 - v1.0.2 - Desenvolvido por Armindo Neto
+          2026 - v1.0.3 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>
