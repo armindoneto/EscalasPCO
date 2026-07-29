@@ -28,7 +28,9 @@ import {
   ArrowDown,
   Pencil,
   Eye,
-  EyeOff
+  EyeOff,
+  Lock,
+  Unlock
 } from "lucide-react";
 import { 
   DEFAULT_SLOTS, 
@@ -540,7 +542,24 @@ export default function App() {
   } | null>(null);
 
   // Navigation and UI state
-  const [activeTab, setActiveTab] = useState<"grid" | "report">("grid");
+  const [activeTab, setActiveTab] = useState<"grid" | "report">("report");
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState<string>("");
+  const [adminPasswordError, setAdminPasswordError] = useState<boolean>(false);
+
+  const handleAdminPasswordSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (adminPasswordInput === "121846") {
+      setIsAdmin(true);
+      setIsAdminModalOpen(false);
+      setAdminPasswordInput("");
+      setAdminPasswordError(false);
+      triggerNotification("success", "Acesso de administrador liberado com sucesso!");
+    } else {
+      setAdminPasswordError(true);
+    }
+  };
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [editingCell, setEditingCell] = useState<{ profId: string; day: number } | null>(null);
   const [quickEditValue, setQuickEditValue] = useState<string>("");
@@ -3796,6 +3815,69 @@ Data;Escala;Escalado;Nome do Posto;
         </div>
       )}
 
+      {/* Admin Password Modal */}
+      {isAdminModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs no-print">
+          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-sm w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <div className="flex items-center gap-2.5 text-indigo-600 mb-4 pb-2 border-b border-indigo-100">
+                <div className="p-2 bg-indigo-50 rounded-lg">
+                  <Lock className="w-5 h-5 text-indigo-600" />
+                </div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">
+                  Acesso de Administrador
+                </h3>
+              </div>
+
+              <form onSubmit={handleAdminPasswordSubmit}>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  Digite a senha de administrador:
+                </label>
+                <input
+                  type="password"
+                  value={adminPasswordInput}
+                  onChange={(e) => {
+                    setAdminPasswordInput(e.target.value);
+                    setAdminPasswordError(false);
+                  }}
+                  placeholder="Senha..."
+                  autoFocus
+                  className={`w-full bg-slate-50 border ${
+                    adminPasswordError ? "border-rose-500 bg-rose-50/50" : "border-slate-300 focus:border-indigo-500"
+                  } rounded px-3 py-2 text-sm font-bold text-slate-800 focus:outline-hidden mb-1`}
+                />
+                {adminPasswordError && (
+                  <p className="text-[11px] font-bold text-rose-600 uppercase tracking-wider mt-1.5 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    Senha incorreta! Tente novamente.
+                  </p>
+                )}
+
+                <div className="flex items-center justify-end gap-2 mt-6 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAdminModalOpen(false);
+                      setAdminPasswordInput("");
+                      setAdminPasswordError(false);
+                    }}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold uppercase tracking-wider rounded transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold uppercase tracking-wider rounded shadow-xs transition-all cursor-pointer"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Header - Hidden in Print */}
       <header className="no-print h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
         <div className="flex items-center gap-4">
@@ -3810,6 +3892,29 @@ Data;Escala;Escalado;Nome do Posto;
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {/* Admin Lock / Unlock Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isAdmin) {
+                setIsAdmin(false);
+                triggerNotification("info", "Modo administrador bloqueado.");
+              } else {
+                setAdminPasswordInput("");
+                setAdminPasswordError(false);
+                setIsAdminModalOpen(true);
+              }
+            }}
+            className={`p-2 rounded text-xs font-bold uppercase tracking-wider flex items-center justify-center transition-all cursor-pointer border ${
+              isAdmin
+                ? "bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700 shadow-xs"
+                : "bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+            }`}
+            title={isAdmin ? "Administrador Liberado (Clique para bloquear)" : "Bloqueado (Clique para digitar a senha de administrador)"}
+          >
+            {isAdmin ? <Unlock className="w-4 h-4 text-white" /> : <Lock className="w-4 h-4 text-slate-600" />}
+          </button>
+
           {/* Supabase connection badge */}
           <div 
             onClick={() => dbSyncStatus === 'error' && setShowSqlSetup(!showSqlSetup)}
@@ -3984,44 +4089,51 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
           </div>
 
           {/* Unified Scale Upload */}
-          <div className="flex items-center gap-2">
-            <label className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] uppercase tracking-wider px-3.5 py-1.5 rounded cursor-pointer transition-colors shadow-xs flex items-center gap-1.5 hover:scale-[1.02] active:scale-[0.98]">
-              <UploadCloud className="w-3.5 h-3.5" />
-              Importar Escala
-              <input
-                type="file"
-                accept=".csv,.txt"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    handleUnifiedCsvUpload(file);
-                  }
-                }}
-                className="hidden"
-              />
-            </label>
-            <button
-              type="button"
-              className="text-slate-500 hover:text-indigo-600 border border-slate-200 bg-white p-1.5 rounded transition-colors flex items-center justify-center hover:scale-[1.02] cursor-help"
-              title="Carregue o arquivo .csv baixado pela função de Exportar Planilha, no menu de visualização de boletim do E-RISAER."
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          {isAdmin && (
+            <div className="flex items-center gap-2">
+              <label 
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-[11px] uppercase tracking-wider px-3.5 py-1.5 rounded transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                Importar Escala
+                <input
+                  type="file"
+                  accept=".csv,.txt"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      handleUnifiedCsvUpload(file);
+                    }
+                  }}
+                  className="hidden"
+                />
+              </label>
+              <button
+                type="button"
+                className="text-slate-500 hover:text-indigo-600 border border-slate-200 bg-white p-1.5 rounded transition-colors flex items-center justify-center hover:scale-[1.02] cursor-help"
+                title="Carregue o arquivo .csv baixado pela função de Exportar Planilha, no menu de visualização de boletim do E-RISAER."
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={() => {
-              setSelectedScalesToDelete([]); // Clear previous selections
-              setIsDeleteScalesModalOpen(true);
-            }}
-            className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1.5"
-            title="Apagar dados de escalas específicas do mês ativo"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> Apagar Escala
-          </button>
-        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => {
+                setSelectedScalesToDelete([]); // Clear previous selections
+                setIsDeleteScalesModalOpen(true);
+              }}
+              className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer flex items-center gap-1.5"
+              title="Apagar dados de escalas específicas do mês ativo"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Apagar Escala
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Content Layout */}
@@ -4033,17 +4145,19 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
           {/* Navigation Tabs - Hidden in Print */}
           <div className="no-print bg-white border border-slate-200 p-1.5 rounded flex items-center justify-between shadow-xs shrink-0">
             <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setActiveTab("grid")}
-                className={`px-4 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${
-                  activeTab === "grid"
-                    ? "bg-indigo-600 text-white shadow-xs"
-                    : "text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                <Calendar className="w-4 h-4" />
-                Escala Consolidada
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveTab("grid")}
+                  className={`px-4 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${
+                    activeTab === "grid"
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" />
+                  Escala Consolidada
+                </button>
+              )}
               <button
                 onClick={() => setActiveTab("report")}
                 className={`px-4 py-2 rounded text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2 ${
@@ -4052,8 +4166,8 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
-                <Printer className="w-4 h-4" />
-                Visualizar Impressão
+                <FileText className="w-4 h-4" />
+                Visualizar Escala
               </button>
             </div>
 
@@ -4606,31 +4720,33 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     <FileText className="w-6 h-6" />
                   </div>
                   <h3 className="text-base sm:text-lg font-black text-slate-900 uppercase tracking-wider leading-none">
-                    Visualização de Impressão da Escala
+                    Visualização de Escala
                   </h3>
                 </div>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setIsSignaturesModalOpen(true)}
-                    className="bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer"
-                  >
-                    Assinaturas
-                  </button>
-                  <button
-                    onClick={handlePrint}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer"
-                  >
-                    Imprimir Relatório (PDF)
-                  </button>
-                  <button
-                    onClick={handleDownloadXlsx}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-sm cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Download className="w-4 h-4" />
-                    Baixar Planilha
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setIsSignaturesModalOpen(true)}
+                      className="bg-slate-600 hover:bg-slate-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      Assinaturas
+                    </button>
+                    <button
+                      onClick={handlePrint}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      Imprimir Relatório (PDF)
+                    </button>
+                    <button
+                      onClick={handleDownloadXlsx}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded uppercase tracking-wider transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Download className="w-4 h-4" />
+                      Baixar Planilha
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* PAPER PAGE CONTAINER - STYLED TO LOOK LIKE TWO STACKED A4 SHEETS */}
@@ -5006,7 +5122,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          2026 - v1.0.3 - Desenvolvido por Armindo Neto
+          2026 - v1.0.4 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>
