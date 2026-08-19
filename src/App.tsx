@@ -309,6 +309,26 @@ const getCellFontColor = (day: number, month: number, year: number, customColor?
   return "text-slate-900"; // weekday
 };
 
+const getDayHeaderBgColor = (isWeekend: boolean, customColor?: "red" | "purple" | "none"): string => {
+  if (customColor === "red") {
+    return "bg-[#990000]";
+  }
+  if (customColor === "purple") {
+    return "bg-[#6b21a8]";
+  }
+  if (customColor === "none") {
+    return "bg-[#0b5394]";
+  }
+  return isWeekend ? "bg-[#990000]" : "bg-[#0b5394]";
+};
+
+const getCellColumnBg = (isWeekend: boolean, customColor?: "red" | "purple" | "none"): string => {
+  if (customColor === "red") return "bg-red-50/15";
+  if (customColor === "purple") return "bg-purple-50/15";
+  if (customColor === "none") return "";
+  return isWeekend ? "bg-amber-50/10" : "";
+};
+
 const parseLoadedProfessionals = (raw: any[]): Professional[] => {
   if (!raw) return [];
   return raw.map((p) => {
@@ -497,9 +517,9 @@ const matchMilitaryName = (parsedName: string, profs: Professional[], category?:
 };
 
 export default function App() {
-  // Main active period and context state
-  const [selectedMonth, setSelectedMonth] = useState<number>(6); // Default to July (index 6)
-  const [selectedYear, setSelectedYear] = useState<number>(2026); // Default to 2026
+  // Main active period and context state (defaults to current month and year)
+  const [selectedMonth, setSelectedMonth] = useState<number>(() => new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
   const [locationName, setLocationName] = useState<string>("Escala de Serviço");
 
   // Supabase & LocalStorage integration state
@@ -583,8 +603,8 @@ export default function App() {
   const [addSpecialty, setAddSpecialty] = useState<string>("");
   const [addName, setAddName] = useState<string>("");
   const [addInclusionType, setAddInclusionType] = useState<"definitivo" | "partir">("definitivo");
-  const [addStartMonth, setAddStartMonth] = useState<number>(6);
-  const [addStartYear, setAddStartYear] = useState<number>(2026);
+  const [addStartMonth, setAddStartMonth] = useState<number>(() => new Date().getMonth());
+  const [addStartYear, setAddStartYear] = useState<number>(() => new Date().getFullYear());
 
   // Delete Scales Modal state
   const [isDeleteScalesModalOpen, setIsDeleteScalesModalOpen] = useState<boolean>(false);
@@ -2572,10 +2592,18 @@ export default function App() {
               cell.s.font = { name: "Arial", sz: 10, bold: true, color: { rgb: "FFFFFF" } };
               cell.s.alignment.horizontal = "left";
             } else if (c <= daysInMonth) {
-              // Day headers: Blue for weekdays, Red for weekends
+              // Day headers: Blue for weekdays, Red for weekends / custom colors
               const dayIndex = c - 1;
               const dayObj = daysArray[dayIndex];
-              const headerBgColor = dayObj.isWeekend ? "990000" : "0B5394";
+              const customCol = dayCustomColors[dayObj.day];
+              let headerBgColor = dayObj.isWeekend ? "990000" : "0B5394";
+              if (customCol === "red") {
+                headerBgColor = "990000";
+              } else if (customCol === "purple") {
+                headerBgColor = "6B21A8";
+              } else if (customCol === "none") {
+                headerBgColor = "0B5394";
+              }
 
               cell.s.fill = {
                 patternType: "solid",
@@ -4266,19 +4294,30 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       <th className="px-4 py-3 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-10 bg-slate-50 border-r border-slate-200/50 min-w-[250px]">
                         Militar
                       </th>
-                      {daysArray.map((dayObj) => (
-                        <th
-                          key={dayObj.day}
-                          onClick={() => setSelectedDayForPopup(dayObj.day)}
-                          title={`Ver militares de serviço no dia ${dayObj.day}`}
-                          className={`px-1 py-2 border-b border-slate-200 text-[10px] font-bold uppercase tracking-wider text-center font-mono min-w-[34px] cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 transition-colors ${
-                            dayObj.isWeekend ? "bg-amber-50/50 text-amber-700 font-bold" : "text-slate-500"
-                          }`}
-                        >
-                          <div className="text-[8px] font-medium leading-none mb-0.5">{dayObj.weekday}</div>
-                          <div className="text-[10px]">{dayObj.day.toString().padStart(2, "0")}</div>
-                        </th>
-                      ))}
+                      {daysArray.map((dayObj) => {
+                        const customCol = dayCustomColors[dayObj.day];
+                        const headerClass = customCol === "red"
+                          ? "bg-red-100 text-red-700 font-bold hover:bg-red-200"
+                          : customCol === "purple"
+                          ? "bg-purple-100 text-purple-700 font-bold hover:bg-purple-200"
+                          : customCol === "none"
+                          ? "text-slate-500 hover:bg-indigo-50 hover:text-indigo-600"
+                          : dayObj.isWeekend
+                          ? "bg-amber-50/50 text-amber-700 font-bold hover:bg-amber-100"
+                          : "text-slate-500 hover:bg-indigo-50 hover:text-indigo-600";
+
+                        return (
+                          <th
+                            key={dayObj.day}
+                            onClick={() => setSelectedDayForPopup(dayObj.day)}
+                            title={`Ver militares de serviço no dia ${dayObj.day}`}
+                            className={`px-1 py-2 border-b border-slate-200 text-[10px] uppercase tracking-wider text-center font-mono min-w-[34px] cursor-pointer transition-colors ${headerClass}`}
+                          >
+                            <div className="text-[8px] font-medium leading-none mb-0.5">{dayObj.weekday}</div>
+                            <div className="text-[10px]">{dayObj.day.toString().padStart(2, "0")}</div>
+                          </th>
+                        );
+                      })}
                       {showControl && (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((srv) => (
                         <th
                           key={srv.code}
@@ -4400,7 +4439,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                 key={dayObj.day}
                                 onClick={() => !isEditing && handleCellClick(prof.id, dayObj.day)}
                                 className={`p-0.5 text-center font-mono font-bold text-xs select-none cursor-pointer transition-colors border-r border-slate-100 ${
-                                  dayObj.isWeekend ? "bg-amber-50/10" : ""
+                                  getCellColumnBg(dayObj.isWeekend, dayCustomColors[dayObj.day])
                                 } ${colorClass}`}
                               >
                                 {isEditing ? (
@@ -4852,7 +4891,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                               onClick={() => setSelectedDayForPopup(dayObj.day)}
                               title={`Ver militares de serviço no dia ${dayObj.day}`}
                               className={`p-0 text-center font-mono font-bold text-white border-r border-black min-w-[20px] cursor-pointer hover:opacity-80 transition-opacity ${
-                                dayObj.isWeekend ? "bg-[#990000]" : "bg-[#0b5394]"
+                                getDayHeaderBgColor(dayObj.isWeekend, dayCustomColors[dayObj.day])
                               }`}
                               style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
                             >
@@ -4897,7 +4936,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                       isIndisp ? "bg-red-600 font-black" :
                                       isParecer ? "bg-orange-400 font-black" :
                                       isExpediente ? "bg-yellow-400 font-black" :
-                                      dayObj.isWeekend ? "bg-amber-50/10" : ""
+                                      getCellColumnBg(dayObj.isWeekend, dayCustomColors[dayObj.day])
                                     } ${printTextClass}`}
                                     style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
                                   >
@@ -5031,7 +5070,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                 onClick={() => setSelectedDayForPopup(dayObj.day)}
                                 title={`Ver militares de serviço no dia ${dayObj.day}`}
                                 className={`p-0 text-center font-mono font-bold text-white border-r border-black min-w-[20px] cursor-pointer hover:opacity-80 transition-opacity ${
-                                  dayObj.isWeekend ? "bg-[#990000]" : "bg-[#0b5394]"
+                                  getDayHeaderBgColor(dayObj.isWeekend, dayCustomColors[dayObj.day])
                                 }`}
                                 style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
                               >
@@ -5076,7 +5115,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                         isIndisp ? "bg-red-600 font-black" :
                                         isParecer ? "bg-orange-400 font-black" :
                                         isExpediente ? "bg-yellow-400 font-black" :
-                                        dayObj.isWeekend ? "bg-amber-50/10" : ""
+                                        getCellColumnBg(dayObj.isWeekend, dayCustomColors[dayObj.day])
                                       } ${printTextClass}`}
                                       style={{ fontSize: '11px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}
                                     >
@@ -5122,7 +5161,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          2026 - v1.0.4 - Desenvolvido por Armindo Neto
+          2026 - v1.0.5 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>
