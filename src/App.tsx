@@ -246,26 +246,19 @@ const getProfServiceCountInMonth = (
 };
 
 const getScaleSigla = (roleText: string): string => {
-  const clean = (roleText || "").toUpperCase().trim();
+  if (!roleText) return "";
+  const clean = roleText.toUpperCase().trim();
   
-  // Check Sobreaviso first to prevent "SOBREAVISO MOTORISTA" or "SOBREAVISO PERMANÊNCIA" from matching "MD" or "PV"
-  if (clean.startsWith("SM") || (clean.includes("SOBREAVISO") && (clean.includes("MOTORISTA") || clean.includes("MD")))) return "SM";
-  if (clean.startsWith("SS") || (clean.includes("SOBREAVISO") && (clean.includes("SENTINELA") || clean.includes("VILA") || clean.includes("PERMANE") || clean.includes("PV") || clean.includes("SARGENTO")))) return "SS";
-
-  if (clean.startsWith("MD") || clean.includes("MOTORISTA DE DIA")) return "MD";
-  if (clean.startsWith("PV") || clean.includes("PERMANÊNCIA") || clean.includes("PERMANENCIA")) return "PV";
-  if (clean.startsWith("SD") || clean.includes("SEGURANÇA") || clean.includes("SEGURANCA") || clean.includes("DEFESA")) return "SD";
-  if (clean.startsWith("ST") || clean.includes("SENTINELA")) return "ST";
-  if (clean.startsWith("KF") || clean.includes("KF")) return "KF";
-  if (clean.startsWith("TD") || clean.includes("TÉCNICO DE DIA") || clean.includes("TECNICO DE DIA")) return "TD";
-  if (clean.startsWith("MC") || (clean.includes("MOTORISTA") && clean.includes("COLETIVO"))) return "MC";
-  if (clean.startsWith("AC") || clean.includes("ACUMULADO")) return "AC";
-
-  if (roleText.includes(" - ")) {
-    return roleText.split(" - ")[0].trim();
+  // Strictly accept only the registered scale codes:
+  // SD, KF, MC, TD, AC, ST, PV, SM, MD, SS
+  // The entry MUST start with the valid code (e.g., "MD - Motorista de Dia", "MD", "SD - Segurança e Defesa").
+  // Any entry not having the prefix code (e.g. "Motorista de Dia") is ignored and returns "".
+  const match = clean.match(/^(SD|KF|MC|TD|AC|ST|PV|SM|MD|SS)(\s*[-_:/.\(]|\s+|$)/);
+  if (match) {
+    return match[1];
   }
 
-  return clean.substring(0, 2);
+  return "";
 };
 
 const getEasterSunday = (year: number): Date => {
