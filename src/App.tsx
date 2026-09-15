@@ -142,19 +142,6 @@ const YEARS: YearOption[] = [
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-const SCALE_OPTIONS = [
-  { code: "MD", label: "Motorista de Dia" },
-  { code: "PV", label: "Permanência na Vila Militar" },
-  { code: "SD", label: "Segurança e Defesa" },
-  { code: "SM", label: "Sobreaviso de Motorista de Dia" },
-  { code: "SS", label: "Sobreaviso de Sentinela e Permanência à Vila" },
-  { code: "ST", label: "Sentinela" },
-  { code: "KF", label: "Operador de KF" },
-  { code: "TD", label: "Técnico de Dia" },
-  { code: "MC", label: "Motorista de Coletivo" },
-  { code: "AC", label: "SD + TD Acumulado" },
-];
-
 const GRADUADOS_CONTROL_SERVICES = [
   { code: "SD", label: "SD - SEGURANÇA E DEFESA", minRequired: 1 },
   { code: "TD", label: "TD - TÉCNICO DE DIA", minRequired: 1 },
@@ -162,13 +149,40 @@ const GRADUADOS_CONTROL_SERVICES = [
   { code: "MC", label: "MC - MOTORISTA DE COLETIVO", minRequired: 2 },
 ];
 
-const SOLDADOS_CONTROL_SERVICES = [
+const getSoldadosControlServices = (isPostOct2026: boolean) => [
   { code: "ST", label: "ST - SENTINELA", minRequired: 2 },
   { code: "MD", label: "MD - MOTORISTA DE DIA", minRequired: 1 },
   { code: "PV", label: "PV - PERMANÊNCIA À VILA MILITAR", minRequired: 1 },
   { code: "SM", label: "SM - SOBREAVISO DE MOTORISTA DE DIA", minRequired: 1 },
-  { code: "SS", label: "SS - SOBREAVISO DE SENTINELA E PERMANÊNCIA", minRequired: 1 },
+  { 
+    code: "SS", 
+    label: isPostOct2026 
+      ? "SS - SOBREAVISO DE SENTINELA" 
+      : "SS - SOBREAVISO DE SENTINELA E PERMANÊNCIA", 
+    minRequired: 1 
+  },
 ];
+
+const getScaleOptions = (isPostOct2026: boolean) => [
+  { code: "MD", label: "Motorista de Dia" },
+  { code: "PV", label: "Permanência na Vila Militar" },
+  { code: "SD", label: "Segurança e Defesa" },
+  { code: "SM", label: "Sobreaviso de Motorista de Dia" },
+  { 
+    code: "SS", 
+    label: isPostOct2026 
+      ? "Sobreaviso de Sentinela" 
+      : "Sobreaviso de Sentinela e Permanência à Vila" 
+  },
+  { code: "ST", label: "Sentinela" },
+  { code: "KF", label: "Operador de KF" },
+  { code: "TD", label: "Técnico de Dia" },
+  { code: "MC", label: "Motorista de Coletivo" },
+  { code: "AC", label: "SD + TD Acumulado" },
+];
+
+const SCALE_OPTIONS = getScaleOptions(false);
+const SOLDADOS_CONTROL_SERVICES = getSoldadosControlServices(false);
 
 const getControlCountForDay = (
   profsList: Professional[],
@@ -515,12 +529,24 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
   const [locationName, setLocationName] = useState<string>("Escala de Serviço");
 
+  // Dynamic check for October 2026 and later
+  const isPostOct2026 = useMemo(() => {
+    return selectedYear > 2026 || (selectedYear === 2026 && selectedMonth >= 9);
+  }, [selectedYear, selectedMonth]);
+
+  const currentSoldadosControlServices = useMemo(() => {
+    return getSoldadosControlServices(isPostOct2026);
+  }, [isPostOct2026]);
+
+  const currentScaleOptions = useMemo(() => {
+    return getScaleOptions(isPostOct2026);
+  }, [isPostOct2026]);
+
   // Supabase & LocalStorage integration state
   const [supabaseConfigured, setSupabaseConfigured] = useState<boolean>(false);
   const [dbSyncStatus, setDbSyncStatus] = useState<'loading' | 'synced' | 'local' | 'error'>('loading');
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
-  const [showSqlSetup, setShowSqlSetup] = useState<boolean>(false);
   const [showVercelSetup, setShowVercelSetup] = useState<boolean>(true);
 
   // Detect if the app is running in a production or Vercel environment where direct connection is needed
@@ -539,9 +565,26 @@ export default function App() {
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [cellState, setCellState] = useState<{ [profId: string]: { [day: number]: string } }>({});
   const [dayCustomColors, setDayCustomColors] = useState<Record<number, "red" | "purple" | "none">>({});
+  const [deactivatedScales, setDeactivatedScales] = useState<string[]>([]);
+
+  const isScaleDeactivated = (code: string) => {
+    return deactivatedScales.includes(code);
+  };
+
+  const toggleScaleDeactivated = (code: string) => {
+    setDeactivatedScales((prev) => {
+      const exists = prev.includes(code);
+      return exists ? prev.filter((c) => c !== code) : [...prev, code];
+    });
+    setIsDirty(true);
+  };
 
   // Active scale category: GRADUADOS or SOLDADOS
   const [activeScale, setActiveScale] = useState<"GRADUADOS" | "SOLDADOS">("GRADUADOS");
+
+  const currentControlServices = useMemo(() => {
+    return activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : currentSoldadosControlServices;
+  }, [activeScale, currentSoldadosControlServices]);
 
   // Show/Hide Efetivo Control rows in Consolidated Scale
   const [showControl, setShowControl] = useState<boolean>(false);
@@ -739,6 +782,7 @@ export default function App() {
           setProfessionals(parsedProfs);
           setCellState(healedCells);
           setDayCustomColors(healedCells.__dayCustomColors || {});
+          setDeactivatedScales(healedCells.__deactivatedScales || []);
 
           // Extract signers (prefer month-specific, fallback to global-signatures, fallback to localStorage, fallback to default)
           let globalGraduados: Signer[] | null = null;
@@ -829,6 +873,7 @@ export default function App() {
             setProfessionals(parsedProfs);
             setCellState(healedCells);
             setDayCustomColors(healedCells.__dayCustomColors || {});
+            setDeactivatedScales(healedCells.__deactivatedScales || []);
 
             // Extract signers (prefer month-specific, fallback to global-signatures, fallback to localStorage, fallback to default)
             let globalGraduados: Signer[] | null = null;
@@ -885,6 +930,7 @@ export default function App() {
             setProfessionals(parsedProfs);
             setCellState(healedCells);
             setDayCustomColors(healedCells.__dayCustomColors || {});
+            setDeactivatedScales(healedCells.__deactivatedScales || []);
 
             // Extract signers
             if (localCellsRaw.__graduadosSigners) {
@@ -928,6 +974,7 @@ export default function App() {
         setProfessionals(parsedProfs);
         setCellState(healedCells);
         setDayCustomColors(healedCells.__dayCustomColors || {});
+        setDeactivatedScales(healedCells.__deactivatedScales || []);
 
         // Extract signers
         if (localCellsRaw.__graduadosSigners) {
@@ -952,8 +999,6 @@ export default function App() {
         }
 
         if (changed) setIsDirty(true);
-        
-        triggerNotification("error", "Não foi possível conectar ao Supabase (verifique suas tabelas no painel). Operando com dados locais.");
       } finally {
         setInitialLoadDone(true);
       }
@@ -970,6 +1015,7 @@ export default function App() {
       __graduadosSigners: graduadosSigners,
       __soldadosSigners: soldadosSigners,
       __dayCustomColors: dayCustomColors,
+      __deactivatedScales: deactivatedScales,
     };
 
     // LocalStorage save is immediate so local data is always up-to-date
@@ -1072,7 +1118,7 @@ export default function App() {
     }, 1500); // 1.5 seconds debounce
 
     return () => clearTimeout(handler);
-  }, [professionals, cellState, dayCustomColors, graduadosSigners, soldadosSigners, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
+  }, [professionals, cellState, dayCustomColors, deactivatedScales, graduadosSigners, soldadosSigners, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
 
   // Save current data state to Supabase or LocalStorage
   const handleSaveData = async () => {
@@ -1083,6 +1129,7 @@ export default function App() {
         __graduadosSigners: graduadosSigners,
         __soldadosSigners: soldadosSigners,
         __dayCustomColors: dayCustomColors,
+        __deactivatedScales: deactivatedScales,
       };
 
       // Always save a local copy immediately first to prevent ANY data loss
@@ -2504,7 +2551,7 @@ export default function App() {
         return;
       }
 
-      const controlServices = activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES;
+      const controlServices = currentControlServices;
 
       // 1. Headers: Military Column followed by day numbers (and summary columns if showControl)
       const headers = [
@@ -3144,11 +3191,11 @@ export default function App() {
               </p>
 
               <div className="flex justify-between items-center mb-3 text-[10px] uppercase font-bold text-slate-400">
-                <span>Escalas Disponíveis ({SCALE_OPTIONS.length})</span>
+                <span>Escalas Disponíveis ({currentScaleOptions.length})</span>
                 <div className="flex gap-2.5">
                   <button
                     type="button"
-                    onClick={() => setSelectedScalesToDelete(SCALE_OPTIONS.map(opt => opt.code))}
+                    onClick={() => setSelectedScalesToDelete(currentScaleOptions.map(opt => opt.code))}
                     className="text-indigo-600 hover:text-indigo-800 cursor-pointer"
                   >
                     Marcar Todas
@@ -3165,7 +3212,7 @@ export default function App() {
               </div>
 
               <div className="max-h-[240px] overflow-y-auto border border-slate-100 rounded bg-slate-50 p-3 flex flex-col gap-2 mb-5">
-                {SCALE_OPTIONS.map((opt) => {
+                {currentScaleOptions.map((opt) => {
                   const isChecked = selectedScalesToDelete.includes(opt.code);
                   return (
                     <label 
@@ -3780,7 +3827,7 @@ Data;Escala;Escalado;Nome do Posto;
                   const day = selectedDayForPopup;
                   const dutiesList: { code: string; label: string; military: string }[] = [];
                   
-                  SCALE_OPTIONS.forEach((opt) => {
+                  currentScaleOptions.forEach((opt) => {
                     professionals.forEach((prof) => {
                       const val = cellState[prof.id]?.[day];
                       if (val) {
@@ -3938,14 +3985,12 @@ Data;Escala;Escalado;Nome do Posto;
 
           {/* Supabase connection badge */}
           <div 
-            onClick={() => dbSyncStatus === 'error' && setShowSqlSetup(!showSqlSetup)}
             className={`px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all ${
               dbSyncStatus === 'synced' ? "bg-emerald-50 text-emerald-800 border border-emerald-200" :
               dbSyncStatus === 'loading' ? "bg-amber-50 text-amber-800 border border-amber-200 animate-pulse" :
-              dbSyncStatus === 'error' ? "bg-rose-50 text-rose-800 border border-rose-200 cursor-pointer hover:bg-rose-100 hover:scale-[1.02]" :
+              dbSyncStatus === 'error' ? "bg-rose-50 text-rose-800 border border-rose-200" :
               "bg-slate-50 text-slate-600 border border-slate-200"
             }`}
-            title={dbSyncStatus === 'error' ? "Clique para ver instruções de correção" : undefined}
           >
             <span className={`w-2 h-2 rounded-full ${
               dbSyncStatus === 'synced' ? "bg-emerald-500" :
@@ -3966,113 +4011,6 @@ Data;Escala;Escalado;Nome do Posto;
           )}
         </div>
       </header>
-
-      {/* Database Diagnostic/Setup Alert - Hidden in Print */}
-      {dbSyncStatus === 'error' && (
-        <div className="no-print mx-8 mt-4 p-4 bg-rose-50 border border-rose-200 rounded-lg text-slate-800">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="font-bold text-rose-800 text-sm uppercase tracking-wide">
-                Erro de Sincronização com o Supabase Detectado
-              </h3>
-              <p className="text-xs text-rose-700 mt-1 font-medium">
-                Suas chaves do Supabase estão configuradas, mas as tabelas necessárias não foram encontradas no banco de dados. 
-                <strong> Não se preocupe! Seus dados foram salvos automaticamente no seu navegador</strong> e você não perdeu seu trabalho.
-              </p>
-              <div className="mt-3 flex items-center gap-3">
-                <button
-                  onClick={() => setShowSqlSetup(!showSqlSetup)}
-                  className="bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  {showSqlSetup ? "Ocultar Instruções" : "Como corrigir em 1 clique (Instruções SQL)"}
-                </button>
-                <button
-                  onClick={() => {
-                    // Force state load from localStorage to recover work immediately
-                    const localProfs = localStorage.getItem("military_professionals");
-                    const localCells = localStorage.getItem(`military_scales_${selectedMonth}_${selectedYear}`);
-                    if (localProfs) setProfessionals(parseLoadedProfessionals(JSON.parse(localProfs)));
-                    if (localCells) {
-                      const parsedCells = JSON.parse(localCells);
-                      setCellState(parsedCells);
-                      setDayCustomColors(parsedCells.__dayCustomColors || {});
-                    }
-                    triggerNotification("success", "Dados carregados do backup local com sucesso!");
-                  }}
-                  className="bg-slate-200 hover:bg-slate-300 text-slate-800 text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded transition-colors cursor-pointer"
-                >
-                  Forçar Carregamento do Backup Local
-                </button>
-              </div>
-
-              {showSqlSetup && (
-                <div className="mt-4 bg-slate-900 text-slate-100 p-4 rounded-md border border-slate-700 font-mono text-xs select-all overflow-x-auto">
-                  <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-2 select-none border-b border-slate-800 pb-2">
-                    <span>Script SQL para o Supabase (SQL Editor)</span>
-                    <button
-                      onClick={() => {
-                        const sqlText = `CREATE TABLE IF NOT EXISTS public.military_professionals (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    role TEXT NOT NULL,
-    category TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.military_professionals DISABLE ROW LEVEL SECURITY;
-
-CREATE TABLE IF NOT EXISTS public.military_monthly_scales (
-    id TEXT PRIMARY KEY,
-    month INTEGER NOT NULL,
-    year INTEGER NOT NULL,
-    cell_state JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`;
-                        navigator.clipboard.writeText(sqlText);
-                        triggerNotification("success", "Script SQL copiado com sucesso!");
-                      }}
-                      className="text-indigo-400 hover:text-indigo-300 cursor-pointer"
-                    >
-                      Copiar Código
-                    </button>
-                  </div>
-                  <pre className="text-[11px] leading-relaxed select-text text-slate-300">
-{`-- 1. Criar tabela de profissionais militares
-CREATE TABLE IF NOT EXISTS public.military_professionals (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    role TEXT NOT NULL,
-    category TEXT NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.military_professionals DISABLE ROW LEVEL SECURITY;
-
--- 2. Criar tabela de escalas de serviço mensais
-CREATE TABLE IF NOT EXISTS public.military_monthly_scales (
-    id TEXT PRIMARY KEY,
-    month INTEGER NOT NULL,
-    year INTEGER NOT NULL,
-    cell_state JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
-                  </pre>
-                  <p className="mt-3 text-[11px] text-slate-400 select-none border-t border-slate-800 pt-2 font-sans">
-                    <strong>Passo a passo para corrigir:</strong><br />
-                    1. Abra o painel do seu projeto no <strong>Supabase</strong>.<br />
-                    2. No menu lateral esquerdo, clique em <strong>SQL Editor</strong>.<br />
-                    3. Clique em <strong>New Query</strong>.<br />
-                    4. Cole o código acima e clique em <strong>Run</strong> (no canto inferior direito).<br />
-                    5. Volte para este aplicativo e recarregue a página. Tudo estará sincronizado!
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Reference & Parameter Controls Toolbar - Hidden in Print */}
       <div className="no-print bg-slate-100/50 border-b border-slate-200 px-8 py-3 flex flex-wrap items-center justify-between gap-4">
@@ -4311,7 +4249,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                           </th>
                         );
                       })}
-                      {showControl && (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((srv) => (
+                      {showControl && currentControlServices.map((srv) => (
                         <th
                           key={srv.code}
                           title={srv.label}
@@ -4326,7 +4264,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     {filteredProfessionals.length === 0 ? (
                       <tr>
                         <td 
-                          colSpan={daysInMonth + 1 + (showControl ? (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES.length : SOLDADOS_CONTROL_SERVICES.length) : 0)} 
+                          colSpan={daysInMonth + 1 + (showControl ? currentControlServices.length : 0)} 
                           className="py-16 text-center text-slate-400 font-bold uppercase text-[11px] tracking-wider bg-white"
                         >
                           {professionals.filter(p => p.category === activeScale).length === 0 
@@ -4568,7 +4506,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                           
                                           {/* Quick Shift Selection Dropdown */}
                                           <div className="flex flex-wrap gap-1 bg-slate-50 p-1 rounded border border-slate-100 justify-start">
-                                            {SCALE_OPTIONS.map((opt) => (
+                                            {currentScaleOptions.map((opt) => (
                                               <button
                                                 key={opt.code}
                                                 title={opt.label}
@@ -4678,7 +4616,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                             );
                           })}
                           {/* Summary columns when control is visible */}
-                          {showControl && (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((srv) => {
+                          {showControl && currentControlServices.map((srv) => {
                             const count = getProfServiceCountInMonth(prof.id, cellState, srv.code, daysInMonth);
                             return (
                               <td
@@ -4700,13 +4638,13 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       <>
                         <tr className="bg-slate-900 text-white font-bold uppercase border-t-2 border-b-2 border-slate-900">
                           <td 
-                            colSpan={daysInMonth + 1 + (activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES.length : SOLDADOS_CONTROL_SERVICES.length)} 
+                            colSpan={daysInMonth + 1 + currentControlServices.length} 
                             className="px-4 py-2 text-left font-bold text-white uppercase tracking-wider text-xs sticky left-0 z-10 bg-slate-900" 
                           >
                             CONTROLE DE EFETIVO DIÁRIO
                           </td>
                         </tr>
-                        {(activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((srv) => (
+                        {currentControlServices.map((srv) => (
                           <tr key={srv.code} className="bg-slate-50 border-b border-slate-200 hover:bg-slate-100">
                             <td 
                               className="px-4 py-2 font-bold text-slate-800 text-xs uppercase sticky left-0 z-10 bg-slate-50 border-r border-slate-200/80 shadow-[2px_0_5px_rgba(0,0,0,0.01)] min-w-[250px] truncate"
@@ -4728,7 +4666,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                                 </td>
                               );
                             })}
-                            {(activeScale === "GRADUADOS" ? GRADUADOS_CONTROL_SERVICES : SOLDADOS_CONTROL_SERVICES).map((s) => (
+                            {currentControlServices.map((s) => (
                               <td key={s.code} className="bg-slate-100/80 border-l border-slate-200 text-center text-slate-400 text-xs font-mono">-</td>
                             ))}
                           </tr>
@@ -4793,7 +4731,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                     <div className="w-48 shrink-0 min-w-[192px] max-w-[192px] flex items-center justify-center">
                       <img src="/pco.png" alt="DTCEA-PCO Logo" className="h-full w-auto object-contain shrink-0" referrerPolicy="no-referrer" />
                     </div>
-                    <div className="flex-1 flex flex-col">
+                    <div className="flex-1 flex flex-col min-w-0 max-w-full">
                       <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
                         DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
                       </h2>
@@ -4813,60 +4751,172 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                       {/* Color blocks row */}
                       <div className="flex justify-between gap-2 mt-2 px-1">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-8 h-3.5 border border-black bg-red-600 shrink-0"></div>
-                          <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            Dispensas Regulamentares
+                        <div 
+                          onClick={() => toggleScaleDeactivated("DISPENSA")}
+                          title={isScaleDeactivated("DISPENSA") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                          className="flex items-center gap-1.5 cursor-pointer select-none transition-colors hover:opacity-75"
+                        >
+                          <div className={`w-8 h-3.5 border border-black shrink-0 ${isScaleDeactivated("DISPENSA") ? "bg-red-300 opacity-60" : "bg-red-600"}`}></div>
+                          <span 
+                            className={`font-bold uppercase whitespace-nowrap ${isScaleDeactivated("DISPENSA") ? "text-slate-400" : "text-black"}`} 
+                            style={{ 
+                              fontSize: '10px', 
+                              fontFamily: 'Arial, Helvetica, sans-serif', 
+                              fontWeight: 'bold',
+                              color: isScaleDeactivated("DISPENSA") ? '#94a3b8' : '#000000'
+                            }}
+                          >
+                            Dispensas Regulamentares{isScaleDeactivated("DISPENSA") ? " (DESATIVADO)" : ""}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-8 h-3.5 border border-black bg-orange-400 shrink-0"></div>
-                          <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            Aguardando Parecer Externo
+                        <div 
+                          onClick={() => toggleScaleDeactivated("PARECER")}
+                          title={isScaleDeactivated("PARECER") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                          className="flex items-center gap-1.5 cursor-pointer select-none transition-colors hover:opacity-75"
+                        >
+                          <div className={`w-8 h-3.5 border border-black shrink-0 ${isScaleDeactivated("PARECER") ? "bg-orange-300 opacity-60" : "bg-orange-400"}`}></div>
+                          <span 
+                            className={`font-bold uppercase whitespace-nowrap ${isScaleDeactivated("PARECER") ? "text-slate-400" : "text-black"}`} 
+                            style={{ 
+                              fontSize: '10px', 
+                              fontFamily: 'Arial, Helvetica, sans-serif', 
+                              fontWeight: 'bold',
+                              color: isScaleDeactivated("PARECER") ? '#94a3b8' : '#000000'
+                            }}
+                          >
+                            Aguardando Parecer Externo{isScaleDeactivated("PARECER") ? " (DESATIVADO)" : ""}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-8 h-3.5 border border-black bg-yellow-400 shrink-0"></div>
-                          <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            Expediente Administrativo ou Acompanhamento Técnico
+                        <div 
+                          onClick={() => toggleScaleDeactivated("EXPEDIENTE")}
+                          title={isScaleDeactivated("EXPEDIENTE") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                          className="flex items-center gap-1.5 cursor-pointer select-none transition-colors hover:opacity-75"
+                        >
+                          <div className={`w-8 h-3.5 border border-black shrink-0 ${isScaleDeactivated("EXPEDIENTE") ? "bg-yellow-200 opacity-60" : "bg-yellow-400"}`}></div>
+                          <span 
+                            className={`font-bold uppercase whitespace-nowrap ${isScaleDeactivated("EXPEDIENTE") ? "text-slate-400" : "text-black"}`} 
+                            style={{ 
+                              fontSize: '10px', 
+                              fontFamily: 'Arial, Helvetica, sans-serif', 
+                              fontWeight: 'bold',
+                              color: isScaleDeactivated("EXPEDIENTE") ? '#94a3b8' : '#000000'
+                            }}
+                          >
+                            Expediente Administrativo ou Acompanhamento Técnico{isScaleDeactivated("EXPEDIENTE") ? " (DESATIVADO)" : ""}
                           </span>
                         </div>
                       </div>
 
                       {/* Service Abbreviations row */}
-                      <div className="grid grid-cols-[290px_1fr_220px] w-full mt-2.5 px-1 pt-1.5 gap-y-0.5">
+                      <div className="flex flex-col gap-y-0.5 w-full mt-2.5 px-1 pt-1.5">
                         {/* Line 1 */}
-                        <div>
-                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            SD – SEGURANÇA E DEFESA
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            KF – OPERADOR DE KF
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            MC – MOTORISTA DE COLETIVO
-                          </span>
+                        <div className="flex items-center w-full">
+                          <div className="w-[290px] shrink-0">
+                            <span 
+                              onClick={() => toggleScaleDeactivated("SD")}
+                              title={isScaleDeactivated("SD") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                              className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                isScaleDeactivated("SD") ? "text-slate-400" : "text-black"
+                              }`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("SD") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              SD – SEGURANÇA E DEFESA{isScaleDeactivated("SD") ? " (DESATIVADO)" : ""}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0 pr-2">
+                            <span 
+                              onClick={() => toggleScaleDeactivated("KF")}
+                              title={isScaleDeactivated("KF") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                              className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                isScaleDeactivated("KF") ? "text-slate-400" : "text-black"
+                              }`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("KF") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              KF – OPERADOR DE KF{isScaleDeactivated("KF") ? " (DESATIVADO)" : ""}
+                            </span>
+                          </div>
+                          <div className="ml-auto text-right shrink-0">
+                            <span 
+                              onClick={() => toggleScaleDeactivated("MC")}
+                              title={isScaleDeactivated("MC") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                              className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                isScaleDeactivated("MC") ? "text-slate-400" : "text-black"
+                              }`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("MC") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              MC – MOTORISTA DE COLETIVO{isScaleDeactivated("MC") ? " (DESATIVADO)" : ""}
+                            </span>
+                          </div>
                         </div>
                         
                         {/* Line 2 */}
-                        <div>
-                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            TD – TÉCNICO DE DIA
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            AC – ACUMULANDO SEGURANÇA E DEFESA E TÉCNICO DE DIA
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                            * – SERVIÇO EXTRA
-                          </span>
+                        <div className="flex items-center w-full">
+                          <div className="w-[290px] shrink-0">
+                            <span 
+                              onClick={() => toggleScaleDeactivated("TD")}
+                              title={isScaleDeactivated("TD") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                              className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                isScaleDeactivated("TD") ? "text-slate-400" : "text-black"
+                              }`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("TD") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              TD – TÉCNICO DE DIA{isScaleDeactivated("TD") ? " (DESATIVADO)" : ""}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0 pr-2">
+                            <span 
+                              onClick={() => toggleScaleDeactivated("AC")}
+                              title={isScaleDeactivated("AC") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                              className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                isScaleDeactivated("AC") ? "text-slate-400" : "text-black"
+                              }`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("AC") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              AC – ACUMULANDO SEGURANÇA E DEFESA E TÉCNICO DE DIA{isScaleDeactivated("AC") ? " (DESATIVADO)" : ""}
+                            </span>
+                          </div>
+                          <div className="ml-auto text-right shrink-0">
+                            <span 
+                              onClick={() => toggleScaleDeactivated("*")}
+                              title={isScaleDeactivated("*") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                              className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                isScaleDeactivated("*") ? "text-slate-400" : "text-black"
+                              }`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("*") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              * – SERVIÇO EXTRA{isScaleDeactivated("*") ? " (DESATIVADO)" : ""}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -4972,7 +5022,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
                       <div className="w-48 shrink-0 min-w-[192px] max-w-[192px] flex items-center justify-center">
                         <img src="/pco.png" alt="DTCEA-PCO Logo" className="h-full w-auto object-contain shrink-0" referrerPolicy="no-referrer" />
                       </div>
-                      <div className="flex-1 flex flex-col">
+                      <div className="flex-1 flex flex-col min-w-0 max-w-full">
                         <h2 className="print-title uppercase text-center font-bold text-black" style={{ fontSize: '16px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold', lineHeight: '1.2' }}>
                           DESTACAMENTO DE CONTROLE DO ESPAÇO AÉREO DO PICO DO COUTO
                         </h2>
@@ -4992,60 +5042,175 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
 
                         {/* Color blocks row */}
                         <div className="flex justify-between gap-2 mt-2 px-1">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-8 h-3.5 border border-black bg-red-600 shrink-0"></div>
-                            <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              Dispensas Regulamentares
+                          <div 
+                            onClick={() => toggleScaleDeactivated("DISPENSA")}
+                            title={isScaleDeactivated("DISPENSA") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                            className="flex items-center gap-1.5 cursor-pointer select-none transition-colors hover:opacity-75"
+                          >
+                            <div className={`w-8 h-3.5 border border-black shrink-0 ${isScaleDeactivated("DISPENSA") ? "bg-red-300 opacity-60" : "bg-red-600"}`}></div>
+                            <span 
+                              className={`font-bold uppercase whitespace-nowrap ${isScaleDeactivated("DISPENSA") ? "text-slate-400" : "text-black"}`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("DISPENSA") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              Dispensas Regulamentares{isScaleDeactivated("DISPENSA") ? " (DESATIVADO)" : ""}
                             </span>
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-8 h-3.5 border border-black bg-orange-400 shrink-0"></div>
-                            <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              Aguardando Parecer Externo
+                          <div 
+                            onClick={() => toggleScaleDeactivated("PARECER")}
+                            title={isScaleDeactivated("PARECER") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                            className="flex items-center gap-1.5 cursor-pointer select-none transition-colors hover:opacity-75"
+                          >
+                            <div className={`w-8 h-3.5 border border-black shrink-0 ${isScaleDeactivated("PARECER") ? "bg-orange-300 opacity-60" : "bg-orange-400"}`}></div>
+                            <span 
+                              className={`font-bold uppercase whitespace-nowrap ${isScaleDeactivated("PARECER") ? "text-slate-400" : "text-black"}`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("PARECER") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              Aguardando Parecer Externo{isScaleDeactivated("PARECER") ? " (DESATIVADO)" : ""}
                             </span>
                           </div>
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-8 h-3.5 border border-black bg-yellow-400 shrink-0"></div>
-                            <span className="font-bold text-black uppercase" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              Expediente Administrativo ou Acompanhamento Técnico
+                          <div 
+                            onClick={() => toggleScaleDeactivated("EXPEDIENTE")}
+                            title={isScaleDeactivated("EXPEDIENTE") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                            className="flex items-center gap-1.5 cursor-pointer select-none transition-colors hover:opacity-75"
+                          >
+                            <div className={`w-8 h-3.5 border border-black shrink-0 ${isScaleDeactivated("EXPEDIENTE") ? "bg-yellow-200 opacity-60" : "bg-yellow-400"}`}></div>
+                            <span 
+                              className={`font-bold uppercase whitespace-nowrap ${isScaleDeactivated("EXPEDIENTE") ? "text-slate-400" : "text-black"}`} 
+                              style={{ 
+                                fontSize: '10px', 
+                                fontFamily: 'Arial, Helvetica, sans-serif', 
+                                fontWeight: 'bold',
+                                color: isScaleDeactivated("EXPEDIENTE") ? '#94a3b8' : '#000000'
+                              }}
+                            >
+                              Expediente Administrativo ou Acompanhamento Técnico{isScaleDeactivated("EXPEDIENTE") ? " (DESATIVADO)" : ""}
                             </span>
                           </div>
                         </div>
 
                         {/* Service Abbreviations row */}
-                        <div className="grid grid-cols-[290px_1fr_220px] w-full mt-2.5 px-1 pt-1.5 gap-y-0.5">
+                        <div className="flex flex-col gap-y-0.5 w-full mt-2.5 px-1 pt-1.5">
                           {/* Line 1 */}
-                          <div>
-                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              ST – SENTINELA
-                            </span>
-                          </div>
-                          <div>
-                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              PV – PERMANÊNCIA À VILA MILITAR
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              SM – SOBREAVISO DE MOTORISTA DE DIA
-                            </span>
+                          <div className="flex items-center w-full">
+                            <div className="w-[290px] shrink-0">
+                              <span 
+                                onClick={() => toggleScaleDeactivated("ST")}
+                                title={isScaleDeactivated("ST") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                                className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                  isScaleDeactivated("ST") ? "text-slate-400" : "text-black"
+                                }`} 
+                                style={{ 
+                                  fontSize: '10px', 
+                                  fontFamily: 'Arial, Helvetica, sans-serif', 
+                                  fontWeight: 'bold',
+                                  color: isScaleDeactivated("ST") ? '#94a3b8' : '#000000'
+                                }}
+                              >
+                                ST – SENTINELA{isScaleDeactivated("ST") ? " (DESATIVADO)" : ""}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0 pr-2">
+                              <span 
+                                onClick={() => toggleScaleDeactivated("PV")}
+                                title={isScaleDeactivated("PV") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                                className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                  isScaleDeactivated("PV") ? "text-slate-400" : "text-black"
+                                }`} 
+                                style={{ 
+                                  fontSize: '10px', 
+                                  fontFamily: 'Arial, Helvetica, sans-serif', 
+                                  fontWeight: 'bold',
+                                  color: isScaleDeactivated("PV") ? '#94a3b8' : '#000000'
+                                }}
+                              >
+                                PV – PERMANÊNCIA À VILA MILITAR{isScaleDeactivated("PV") ? " (DESATIVADO)" : ""}
+                              </span>
+                            </div>
+                            <div className="ml-auto text-right shrink-0">
+                              <span 
+                                onClick={() => toggleScaleDeactivated("SM")}
+                                title={isScaleDeactivated("SM") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                                className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                  isScaleDeactivated("SM") ? "text-slate-400" : "text-black"
+                                }`} 
+                                style={{ 
+                                  fontSize: '10px', 
+                                  fontFamily: 'Arial, Helvetica, sans-serif', 
+                                  fontWeight: 'bold',
+                                  color: isScaleDeactivated("SM") ? '#94a3b8' : '#000000'
+                                }}
+                              >
+                                SM – SOBREAVISO DE MOTORISTA DE DIA{isScaleDeactivated("SM") ? " (DESATIVADO)" : ""}
+                              </span>
+                            </div>
                           </div>
                           
                           {/* Line 2 */}
-                          <div>
-                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              MD – MOTORISTA DE DIA
-                            </span>
-                          </div>
-                          <div>
-                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              SS – SOBREAVISO DE SENTINELA E PERMANÊNCIA
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-bold text-black whitespace-nowrap" style={{ fontSize: '10px', fontFamily: 'Arial, Helvetica, sans-serif', fontWeight: 'bold' }}>
-                              * – SERVIÇO EXTRA
-                            </span>
+                          <div className="flex items-center w-full">
+                            <div className="w-[290px] shrink-0">
+                              <span 
+                                onClick={() => toggleScaleDeactivated("MD")}
+                                title={isScaleDeactivated("MD") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                                className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                  isScaleDeactivated("MD") ? "text-slate-400" : "text-black"
+                                }`} 
+                                style={{ 
+                                  fontSize: '10px', 
+                                  fontFamily: 'Arial, Helvetica, sans-serif', 
+                                  fontWeight: 'bold',
+                                  color: isScaleDeactivated("MD") ? '#94a3b8' : '#000000'
+                                }}
+                              >
+                                MD – MOTORISTA DE DIA{isScaleDeactivated("MD") ? " (DESATIVADO)" : ""}
+                              </span>
+                            </div>
+                            <div className="flex-1 min-w-0 pr-2">
+                              <span 
+                                onClick={() => toggleScaleDeactivated("SS")}
+                                title={isScaleDeactivated("SS") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                                className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                  isScaleDeactivated("SS") ? "text-slate-400" : "text-black"
+                                }`} 
+                                style={{ 
+                                  fontSize: '10px', 
+                                  fontFamily: 'Arial, Helvetica, sans-serif', 
+                                  fontWeight: 'bold',
+                                  color: isScaleDeactivated("SS") ? '#94a3b8' : '#000000'
+                                }}
+                              >
+                                {isPostOct2026
+                                  ? "SS – SOBREAVISO DE SENTINELA"
+                                  : "SS – SOBREAVISO DE SENTINELA E PERMANÊNCIA"}
+                                {isScaleDeactivated("SS") ? " (DESATIVADO)" : ""}
+                              </span>
+                            </div>
+                            <div className="ml-auto text-right shrink-0">
+                              <span 
+                                onClick={() => toggleScaleDeactivated("*")}
+                                title={isScaleDeactivated("*") ? "Clique para reativar" : "Clique para marcar como (DESATIVADO)"}
+                                className={`font-bold whitespace-nowrap cursor-pointer select-none transition-colors hover:opacity-75 ${
+                                  isScaleDeactivated("*") ? "text-slate-400" : "text-black"
+                                }`} 
+                                style={{ 
+                                  fontSize: '10px', 
+                                  fontFamily: 'Arial, Helvetica, sans-serif', 
+                                  fontWeight: 'bold',
+                                  color: isScaleDeactivated("*") ? '#94a3b8' : '#000000'
+                                }}
+                              >
+                                * – SERVIÇO EXTRA{isScaleDeactivated("*") ? " (DESATIVADO)" : ""}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -5154,7 +5319,7 @@ ALTER TABLE public.military_monthly_scales DISABLE ROW LEVEL SECURITY;`}
       {/* Bottom Status Bar */}
       <footer className="no-print h-8 bg-indigo-900 flex items-center px-6 justify-end shrink-0 text-white mt-auto">
         <div className="text-[9px] text-indigo-300 font-bold uppercase tracking-wider">
-          2026 - v1.0.5 - Desenvolvido por Armindo Neto
+          2026 - v1.0.6 - Desenvolvido por Armindo Neto
         </div>
       </footer>
     </div>

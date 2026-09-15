@@ -351,7 +351,7 @@ Importante: O retorno deve seguir estritamente o formato JSON especificado.`;
     while (attempts < maxAttempts) {
       try {
         response = await ai.models.generateContent({
-          model: "gemini-3.5-flash",
+          model: "gemini-3.8-flash",
           contents: [
             pdfPart,
             { text: promptText }
@@ -471,4 +471,6 @@ async function setupServer() {
   });
 }
 
-setupServer();
+setupServer().catch((err) => {
+  console.error("Erro ao iniciar servidor:", err);
+});
