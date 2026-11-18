@@ -547,6 +547,10 @@ export default function App() {
   const [dbSyncStatus, setDbSyncStatus] = useState<'loading' | 'synced' | 'local' | 'error'>('loading');
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [initialLoadDone, setInitialLoadDone] = useState<boolean>(false);
+  // Period (month-year) whose data is currently loaded in memory. Autosave only runs when it
+  // matches the selected period, so switching months never writes one month's data into another.
+  const [loadedPeriod, setLoadedPeriod] = useState<string | null>(null);
+  const currentPeriodKey = `${selectedMonth}-${selectedYear}`;
   const [showVercelSetup, setShowVercelSetup] = useState<boolean>(true);
 
   // Detect if the app is running in a production or Vercel environment where direct connection is needed
@@ -572,6 +576,7 @@ export default function App() {
   };
 
   const toggleScaleDeactivated = (code: string) => {
+    if (!isAdmin) return;
     setDeactivatedScales((prev) => {
       const exists = prev.includes(code);
       return exists ? prev.filter((c) => c !== code) : [...prev, code];
@@ -755,6 +760,8 @@ export default function App() {
   const fileInputRefs = useRef<{ [slotId: string]: HTMLInputElement | null }>({});
 
   React.useEffect(() => {
+    let cancelled = false;
+    const periodKeyAtLoad = `${selectedMonth}-${selectedYear}`;
     async function loadData() {
       setDbSyncStatus('loading');
       try {
@@ -776,6 +783,7 @@ export default function App() {
             .eq("year", selectedYear)
             .maybeSingle();
           if (sError) throw sError;
+          if (cancelled) return;
 
           const loadedCells = sData?.cell_state || {};
           const { parsedProfs, healedCells, changed } = healLoadedData(mData || [], loadedCells, selectedMonth, selectedYear);
@@ -800,6 +808,7 @@ export default function App() {
           } catch (e) {
             console.warn("Não foi possível carregar assinaturas globais:", e);
           }
+          if (cancelled) return;
 
           if (loadedCells.__graduadosSigners && loadedCells.__graduadosSigners.length > 0) {
             setGraduadosSigners(loadedCells.__graduadosSigners);
@@ -827,7 +836,7 @@ export default function App() {
             }
           }
 
-          if (changed) setIsDirty(true);
+          setIsDirty(changed);
           setDbSyncStatus('synced');
         } else {
           // Check Supabase connection status via server-side proxy
@@ -839,6 +848,7 @@ export default function App() {
             console.warn("Backend proxy API offline, relying on local storage fallback.");
           }
           
+          if (cancelled) return;
           setSupabaseConfigured(statusData.configured);
 
           if (statusData.configured) {
@@ -864,6 +874,7 @@ export default function App() {
             if (!sData.success) {
               throw new Error(sData.message || "Falha do Supabase ao retornar escalas.");
             }
+            if (cancelled) return;
             let loadedCells: any = {};
             if (sData.data) {
               loadedCells = sData.data.cell_state || {};
@@ -890,6 +901,7 @@ export default function App() {
             } catch (e) {
               console.warn("Não foi possível carregar assinaturas globais via proxy:", e);
             }
+            if (cancelled) return;
 
             if (loadedCells.__graduadosSigners && loadedCells.__graduadosSigners.length > 0) {
               setGraduadosSigners(loadedCells.__graduadosSigners);
@@ -917,7 +929,7 @@ export default function App() {
               }
             }
 
-            if (changed) setIsDirty(true);
+            setIsDirty(changed);
             setDbSyncStatus('synced');
           } else {
             // Fallback to local storage
@@ -954,13 +966,13 @@ export default function App() {
               }
             }
 
-            if (changed) setIsDirty(true);
+            setIsDirty(changed);
 
             setDbSyncStatus('local');
           }
         }
-        setIsDirty(false);
       } catch (err) {
+        if (cancelled) return;
         console.error("Erro ao carregar dados do Supabase:", err);
         setDbSyncStatus('error');
         
@@ -998,17 +1010,24 @@ export default function App() {
           }
         }
 
-        if (changed) setIsDirty(true);
+        setIsDirty(changed);
       } finally {
-        setInitialLoadDone(true);
+        if (!cancelled) {
+          setLoadedPeriod(periodKeyAtLoad);
+          setInitialLoadDone(true);
+        }
       }
     }
     loadData();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedMonth, selectedYear]);
 
   // Real-time autosave to LocalStorage and debounced save to Supabase
   React.useEffect(() => {
     if (!initialLoadDone) return;
+    if (loadedPeriod !== currentPeriodKey) return;
 
     const payloadCellState = {
       ...cellState,
@@ -1118,7 +1137,7 @@ export default function App() {
     }, 1500); // 1.5 seconds debounce
 
     return () => clearTimeout(handler);
-  }, [professionals, cellState, dayCustomColors, deactivatedScales, graduadosSigners, soldadosSigners, selectedMonth, selectedYear, initialLoadDone, isDirty, supabaseConfigured]);
+  }, [professionals, cellState, dayCustomColors, deactivatedScales, graduadosSigners, soldadosSigners, selectedMonth, selectedYear, initialLoadDone, loadedPeriod, currentPeriodKey, isDirty, supabaseConfigured]);
 
   // Save current data state to Supabase or LocalStorage
   const handleSaveData = async () => {
@@ -1236,6 +1255,16 @@ export default function App() {
       setDbSyncStatus('error');
       triggerNotification("error", "Erro ao salvar no Supabase. Para segurança, salvamos uma cópia localmente no seu navegador! Detalhe: " + err.message);
     }
+  };
+
+  // Switch the active month/year, first flushing unsaved changes of the current period to the cloud
+  const handlePeriodChange = async (month: number, year: number) => {
+    if (month === selectedMonth && year === selectedYear) return;
+    if (isDirty && loadedPeriod === currentPeriodKey && (clientSupabase || supabaseConfigured)) {
+      await handleSaveData();
+    }
+    setSelectedMonth(month);
+    setSelectedYear(year);
   };
 
   // Trigger processing on a queued slot
@@ -1931,14 +1960,29 @@ export default function App() {
     setCellState((prev) => {
       Object.keys(prev).forEach(profId => {
         const profCells = prev[profId];
+        if (profId.startsWith("__")) {
+          // Metadata (signers, day colors, deactivated legends) is not scale data
+          (newState as any)[profId] = profCells;
+          return;
+        }
         if (profCells) {
           const newProfCells = { ...profCells };
           
           Object.keys(profCells).forEach(dayKey => {
             const day = parseInt(dayKey, 10);
             const val = profCells[day];
-            if (scales.includes(val)) {
+            if (typeof val !== "string") return;
+            const isExtra = val.endsWith("*");
+            const code = (isExtra ? val.slice(0, -1) : val).toUpperCase().trim();
+            if (scales.includes(code)) {
               delete newProfCells[day];
+            } else if (code === "AC" && (scales.includes("SD") || scales.includes("TD"))) {
+              // AC = SD + TD accumulated: removing one of them keeps the other
+              if (scales.includes("SD") && scales.includes("TD")) {
+                delete newProfCells[day];
+              } else {
+                newProfCells[day] = (scales.includes("SD") ? "TD" : "SD") + (isExtra ? "*" : "");
+              }
             }
           });
           
@@ -1948,8 +1992,6 @@ export default function App() {
         }
       });
 
-      // Save to localStorage immediately
-      localStorage.setItem(`military_scales_${selectedMonth}_${selectedYear}`, JSON.stringify(newState));
       return newState;
     });
 
@@ -3789,7 +3831,8 @@ Data;Escala;Escalado;Nome do Posto;
                   </span>
                 </div>
                 
-                {/* Circular color override buttons */}
+                {/* Circular color override buttons (admin only) */}
+                {isAdmin && (
                 <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-full border border-slate-100">
                   <button
                     onClick={() => {
@@ -3820,6 +3863,7 @@ Data;Escala;Escalado;Nome do Posto;
                     }`}
                   />
                 </div>
+                )}
               </div>
               
               <div className="text-xs text-slate-600 space-y-4 font-medium leading-relaxed mt-4 max-h-[380px] overflow-y-auto pr-1">
@@ -3966,6 +4010,8 @@ Data;Escala;Escalado;Nome do Posto;
             onClick={() => {
               if (isAdmin) {
                 setIsAdmin(false);
+                setActiveTab("report");
+                setEditingCell(null);
                 triggerNotification("info", "Modo administrador bloqueado.");
               } else {
                 setAdminPasswordInput("");
@@ -4020,7 +4066,7 @@ Data;Escala;Escalado;Nome do Posto;
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mês:</span>
             <select
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+              onChange={(e) => handlePeriodChange(Number(e.target.value), selectedYear)}
               className="bg-white border border-slate-200 rounded px-2.5 py-1 text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500 uppercase"
             >
               {MONTHS.map((m) => (
@@ -4036,7 +4082,7 @@ Data;Escala;Escalado;Nome do Posto;
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Ano:</span>
             <select
               value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              onChange={(e) => handlePeriodChange(selectedMonth, Number(e.target.value))}
               className="bg-white border border-slate-200 rounded px-2.5 py-1 text-xs font-bold text-slate-800 focus:outline-hidden focus:border-indigo-500"
             >
               {YEARS.map((y) => (
@@ -4063,6 +4109,8 @@ Data;Escala;Escalado;Nome do Posto;
                     if (file) {
                       handleUnifiedCsvUpload(file);
                     }
+                    // Allow selecting the same file again (e.g. after registering missing military)
+                    e.target.value = "";
                   }}
                   className="hidden"
                 />
@@ -4157,7 +4205,7 @@ Data;Escala;Escalado;Nome do Posto;
           </div>
 
           {/* TAB CONTENT 1: CONSOLIDATED GRID */}
-          {activeTab === "grid" && (
+          {activeTab === "grid" && isAdmin && (
             <div className="bg-white border border-slate-200 rounded shadow-sm flex-1 flex flex-col overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
                 <div className="flex items-center gap-3">
