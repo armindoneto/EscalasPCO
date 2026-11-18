@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import XLSX from "xlsx-js-style";
 import { 
@@ -33,18 +33,9 @@ import {
   Unlock
 } from "lucide-react";
 import { 
-  DEFAULT_SLOTS, 
-  generateMockScale, 
-  exportToCSV, 
-  generateRandomName 
-} from "./data/mockData";
-import { 
   Professional, 
-  UploadSlot, 
-  ParsedScale, 
   MonthOption, 
   YearOption,
-  CoverageStats,
   Signer
 } from "./types";
 
@@ -506,28 +497,37 @@ const matchMilitaryName = (parsedName: string, profs: Professional[], category?:
   });
   if (found) return found;
 
-  // 5. Match if the professional's name is a word ending in cleanParsed
-  found = filteredProfs.find((p) => {
-    if (!p.name) return false;
-    const pNameNorm = normalizeStr(p.name);
-    return cleanParsed.endsWith(pNameNorm) && (cleanParsed.length === pNameNorm.length || cleanParsed[cleanParsed.length - pNameNorm.length - 1] === " ");
-  });
-  if (found) return found;
+  // Partial matches below only accept WHOLE WORDS (so "LIMA" never matches "LIMAS") and
+  // must be unambiguous: if two registered names fit equally well, nobody is matched and
+  // the name is reported as "não encontrado" instead of being assigned to the wrong person.
+  const pickUnambiguous = (candidates: Professional[]): Professional | undefined => {
+    if (candidates.length === 0) return undefined;
+    // Prefer the most specific (longest) registered name, e.g. "DA SILVA" over "SILVA"
+    const maxLen = Math.max(...candidates.map((p) => normalizeStr(p.name).length));
+    const best = candidates.filter((p) => normalizeStr(p.name).length === maxLen);
+    return best.length === 1 ? best[0] : undefined;
+  };
+  const paddedParsed = ` ${cleanParsed} `;
 
-  // 6. Match if cleanParsed contains the professional's name
-  found = filteredProfs.find((p) => {
-    if (!p.name) return false;
-    const pNameNorm = normalizeStr(p.name);
-    return cleanParsed.includes(pNameNorm);
+  // 5. Parsed text ends with the professional's name (e.g. "2S SGS WAYAND" -> "WAYAND")
+  const endsWithMatches = filteredProfs.filter((p) => {
+    const pNameNorm = normalizeStr(p.name || "");
+    return !!pNameNorm && paddedParsed.endsWith(` ${pNameNorm} `);
   });
-  return found;
+  if (endsWithMatches.length > 0) return pickUnambiguous(endsWithMatches);
+
+  // 6. Parsed text contains the professional's name as whole word(s)
+  const containsMatches = filteredProfs.filter((p) => {
+    const pNameNorm = normalizeStr(p.name || "");
+    return !!pNameNorm && paddedParsed.includes(` ${pNameNorm} `);
+  });
+  return pickUnambiguous(containsMatches);
 };
 
 export default function App() {
   // Main active period and context state (defaults to current month and year)
   const [selectedMonth, setSelectedMonth] = useState<number>(() => new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState<number>(() => new Date().getFullYear());
-  const [locationName, setLocationName] = useState<string>("Escala de Serviço");
 
   // Dynamic check for October 2026 and later
   const isPostOct2026 = useMemo(() => {
@@ -551,20 +551,6 @@ export default function App() {
   // matches the selected period, so switching months never writes one month's data into another.
   const [loadedPeriod, setLoadedPeriod] = useState<string | null>(null);
   const currentPeriodKey = `${selectedMonth}-${selectedYear}`;
-  const [showVercelSetup, setShowVercelSetup] = useState<boolean>(true);
-
-  // Detect if the app is running in a production or Vercel environment where direct connection is needed
-  const isVercelEnvironment = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    return window.location.hostname.includes("vercel.app") || 
-      (!clientSupabase && !supabaseConfigured && window.location.hostname !== "localhost" && !window.location.hostname.includes(".run.app"));
-  }, [supabaseConfigured]);
-
-  // Slots state (up to 9 slots for the 9 PDFs)
-  const [slots, setSlots] = useState<UploadSlot[]>(() => {
-    return DEFAULT_SLOTS.map(slot => ({ ...slot }));
-  });
-
   // Consolidated Professionals and cell duties state
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const [cellState, setCellState] = useState<{ [profId: string]: { [day: number]: string } }>({});
@@ -593,14 +579,6 @@ export default function App() {
 
   // Show/Hide Efetivo Control rows in Consolidated Scale
   const [showControl, setShowControl] = useState<boolean>(false);
-
-  // Custom confirmation dialog state
-  const [confirmDialog, setConfirmDialog] = useState<{
-    isOpen: boolean;
-    title: string;
-    message: string;
-    onConfirm: () => void;
-  } | null>(null);
 
   // Navigation and UI state
   const [activeTab, setActiveTab] = useState<"grid" | "report">("report");
@@ -634,9 +612,6 @@ export default function App() {
 
   // Notification and warning overlay state
   const [notification, setNotification] = useState<{ type: "success" | "warning" | "error" | "info"; message: string } | null>(null);
-
-  // Manual entry state
-  const [manualName, setManualName] = useState<string>("");
 
   // Add Military Modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -757,7 +732,6 @@ export default function App() {
     totalImported: number;
   } | null>(null);
 
-  const fileInputRefs = useRef<{ [slotId: string]: HTMLInputElement | null }>({});
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1267,22 +1241,6 @@ export default function App() {
     setSelectedYear(year);
   };
 
-  // Trigger processing on a queued slot
-  const handleProcessQueue = (slotId: string) => {
-    const slot = slots.find((s) => s.id === slotId);
-    if (slot && slot.fileToProcess) {
-      const file = slot.fileToProcess as File;
-      const isCsv = file.name.endsWith(".csv") || file.name.endsWith(".txt");
-      if (isCsv) {
-        handleCsvUpload(slotId, file);
-      } else {
-        handleFileUpload(slotId, file);
-      }
-    } else {
-      handleContingencyParsing(slotId);
-    }
-  };
-
   // Compute total days in selected month and year
   const daysInMonth = useMemo(() => {
     return new Date(selectedYear, selectedMonth + 1, 0).getDate();
@@ -1358,344 +1316,6 @@ export default function App() {
     }, 6000);
   };
 
-  // Parse response scales and merge into state
-  const handleMergeParsedScale = (parsed: ParsedScale, defaultRole?: string) => {
-    const roleToUse = defaultRole || parsed.role || "MD";
-    const scaleCode = getScaleSigla(roleToUse);
-    const targetCategory = getTargetCategoryForSigla(scaleCode);
-
-    const unregisteredNames: string[] = [];
-    const matchedEntries: { profId: string; category: "GRADUADOS" | "SOLDADOS"; days: { day: number; shift: string }[] }[] = [];
-
-    parsed.professionals.forEach((parsedProf) => {
-      const cleanName = parsedProf.name.trim();
-      if (!cleanName) return;
-
-      // Find in ALL professionals regardless of active category using robust rank + name matching
-      const existing = matchMilitaryName(cleanName, activeProfessionals, targetCategory);
-
-      if (existing) {
-        matchedEntries.push({
-          profId: existing.id,
-          category: existing.category,
-          days: parsedProf.days
-        });
-      } else {
-        unregisteredNames.push(cleanName);
-      }
-    });
-
-    if (unregisteredNames.length > 0) {
-      throw new Error(`Militar não cadastrado na escala: ${unregisteredNames.join(", ")}`);
-    }
-
-    const newCellEntries: { [profId: string]: { [day: number]: string } } = {};
-    matchedEntries.forEach((entry) => {
-      newCellEntries[entry.profId] = {};
-      entry.days.forEach((duty) => {
-        if (duty.day >= 1 && duty.day <= daysInMonth) {
-          const existingValue = cellState[entry.profId]?.[duty.day] || "";
-          let finalSigla = scaleCode;
-          const upperSigla = scaleCode.toUpperCase();
-          const upperExisting = existingValue.toUpperCase();
-          if (
-            (upperSigla === "SD" && upperExisting === "TD") ||
-            (upperSigla === "TD" && upperExisting === "SD")
-          ) {
-            finalSigla = "AC";
-          }
-          newCellEntries[entry.profId][duty.day] = finalSigla;
-        }
-      });
-    });
-
-    // Update cells state, merging with existing values
-    setCellState((prev) => {
-      const updated = { ...prev };
-      Object.keys(newCellEntries).forEach((profId) => {
-        updated[profId] = {
-          ...(updated[profId] || {}),
-          ...newCellEntries[profId],
-        };
-      });
-      return updated;
-    });
-
-    setIsDirty(true);
-  };
-
-  // Upload and Parse PDF file via Server-Side API
-  const handleFileUpload = async (slotId: string, file: File) => {
-    const slot = slots.find((s) => s.id === slotId);
-    if (!slot) return;
-
-    // Update slot status to uploading
-    setSlots((prev) =>
-      prev.map((s) => (s.id === slotId ? { ...s, fileName: file.name, status: "uploading", errorMsg: null } : s))
-    );
-
-    // Read file as base64
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const result = reader.result as string;
-        const base64 = result.split(",")[1];
-
-        const monthLabel = MONTHS.find((m) => m.value === selectedMonth)?.label || "";
-        const monthYearStr = `${monthLabel} de ${selectedYear}`;
-
-        const response = await fetch("/api/parse-pdf", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            fileName: file.name,
-            fileBase64: base64,
-            roleName: slot.defaultRole,
-            monthYear: monthYearStr,
-          }),
-        });
-
-        if (!response.ok) {
-          const errData = await response.json();
-          if (errData.error === "GEMINI_API_KEY_MISSING") {
-            // Self-healing feature: Auto-fallback when API key is missing
-            console.warn("GEMINI_API_KEY missing, launching simulated parser fallback.");
-            handleContingencyParsing(slotId);
-            return;
-          }
-          throw new Error(errData.message || "Erro desconhecido ao processar arquivo.");
-        }
-
-        const data: ParsedScale = await response.json();
-
-        // Check if data is valid
-        if (!data || !data.professionals || data.professionals.length === 0) {
-          throw new Error("Não foi possível extrair nenhum militar deste PDF.");
-        }
-
-        // Merge into scale state
-        handleMergeParsedScale(data, slot.defaultRole);
-
-        // Mark slot as success
-        setSlots((prev) =>
-          prev.map((s) =>
-            s.id === slotId
-              ? {
-                  ...s,
-                  status: "success",
-                  roleExtracted: data.role || s.defaultRole,
-                  parsedCount: data.professionals.length,
-                }
-              : s
-          )
-        );
-
-        triggerNotification(
-          "success",
-          `Escala "${data.role || slot.defaultRole}" extraída com sucesso! ${data.professionals.length} militares carregados do PDF.`
-        );
-      } catch (err: any) {
-        console.error("Erro na extração de escala:", err);
-        setSlots((prev) =>
-          prev.map((s) => (s.id === slotId ? { ...s, status: "error", errorMsg: err.message } : s))
-        );
-        triggerNotification(
-          "error",
-          `Falha ao extrair PDF do slot "${slot.defaultRole}": ${err.message}`
-        );
-      }
-    };
-
-    reader.onerror = () => {
-      setSlots((prev) =>
-        prev.map((s) => (s.id === slotId ? { ...s, status: "error", errorMsg: "Falha de leitura do arquivo local." } : s))
-      );
-    };
-
-    reader.readAsDataURL(file);
-  };
-
-  // Upload and parse CSV file (Client-Side, 100% deterministic, no AI needed)
-  const handleCsvUpload = async (slotId: string, file: File) => {
-    const slot = slots.find((s) => s.id === slotId);
-    if (!slot) return;
-
-    // Update slot status to uploading
-    setSlots((prev) =>
-      prev.map((s) => (s.id === slotId ? { ...s, fileName: file.name, status: "uploading", errorMsg: null } : s))
-    );
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const text = reader.result as string;
-        // Split by newlines
-        const lines = text.split(/\r?\n/);
-        if (lines.length < 1) {
-          throw new Error("O arquivo CSV ou TXT parece estar vazio.");
-        }
-
-        const scaleChanges: { [profId: string]: { [day: number]: string } } = {};
-        const dutiesCountBySigla: { [sigla: string]: number } = {};
-        const unmatchedNames: string[] = [];
-        let totalImported = 0;
-        let skippedOtherMonthCount = 0;
-
-        const dateRegex = /^\s*(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s*$/;
-
-        // Process data rows
-        for (let r = 0; r < lines.length; r++) {
-          const line = lines[r].trim();
-          if (!line) continue;
-
-          // Split by semicolon (or comma as fallback)
-          const cols = line.split(line.includes(";") ? ";" : ",").map((c) => c.trim());
-          if (cols.length < 3) continue;
-
-          // Check if first column is a valid date (DD/MM/YYYY)
-          const match = cols[0].match(dateRegex);
-          if (!match) continue; // Ignore header or unstructured meta lines
-
-          const day = parseInt(match[1], 10);
-          const month = parseInt(match[2], 10) - 1; // 0-indexed month
-          const year = parseInt(match[3], 10);
-
-          // Verify if it matches active period
-          if (month !== selectedMonth || year !== selectedYear) {
-            skippedOtherMonthCount++;
-            continue;
-          }
-
-          const rawScale = cols[1];
-          if (!rawScale) continue;
-
-          const sigla = getScaleSigla(rawScale);
-          if (!sigla) continue;
-
-          const rawMilitaryCol = cols[2];
-          if (!rawMilitaryCol) continue;
-
-          // Clean military name up to the first parenthesis
-          const cleanMilitaryName = rawMilitaryCol.split("(")[0].trim();
-          if (!cleanMilitaryName) continue;
-
-          // Match military member
-          const targetCategory = getTargetCategoryForSigla(sigla);
-          const matchedProf = matchMilitaryName(cleanMilitaryName, activeProfessionals, targetCategory);
-
-          if (matchedProf) {
-            scaleChanges[matchedProf.id] = scaleChanges[matchedProf.id] || {};
-            
-            const existingValue = scaleChanges[matchedProf.id][day] || cellState[matchedProf.id]?.[day] || "";
-            let finalSigla = sigla;
-            const upperSigla = sigla.toUpperCase();
-            const upperExisting = existingValue.toUpperCase();
-            if (
-              (upperSigla === "SD" && upperExisting === "TD") ||
-              (upperSigla === "TD" && upperExisting === "SD")
-            ) {
-              finalSigla = "AC";
-            }
-
-            scaleChanges[matchedProf.id][day] = finalSigla;
-
-            dutiesCountBySigla[finalSigla] = (dutiesCountBySigla[finalSigla] || 0) + 1;
-            totalImported++;
-          } else {
-            // Do NOT auto-register, keep track of unmatched names
-            if (!unmatchedNames.includes(cleanMilitaryName)) {
-              unmatchedNames.push(cleanMilitaryName);
-            }
-          }
-        }
-
-        if (totalImported === 0) {
-          if (skippedOtherMonthCount > 0) {
-            throw new Error(`Nenhum plantão pôde ser carregado. Encontramos ${skippedOtherMonthCount} linhas pertencentes a outro mês/ano. Verifique se o período selecionado (${MONTHS[selectedMonth].label} de ${selectedYear}) corresponde aos dados do arquivo.`);
-          } else {
-            throw new Error("Não foi identificado nenhum plantão de serviço válido para militares cadastrados neste período.");
-          }
-        }
-
-        // Apply scale cells with overwriting of existing duties ONLY if there is an overlapping day in the imported file
-        setCellState((prev) => {
-          const updated = { ...prev };
-
-          // Merge the new assignments, overwriting only overlapping days
-          Object.keys(scaleChanges).forEach((pId) => {
-            updated[pId] = {
-              ...(updated[pId] || {}),
-              ...scaleChanges[pId]
-            };
-          });
-          return updated;
-        });
-
-        // Update slot status to success for slots that got data
-        setSlots((prev) =>
-          prev.map((s) => {
-            const sSigla = getScaleSigla(s.defaultRole);
-            const count = dutiesCountBySigla[sSigla];
-            if (count && count > 0) {
-              return {
-                ...s,
-                status: "success",
-                fileName: file.name,
-                parsedCount: count,
-                roleExtracted: s.defaultRole,
-                errorMsg: null,
-              };
-            }
-            // If it is the slot that was clicked but didn't receive any data specifically, set it to success if we did import anything, or reset to idle
-            if (s.id === slotId) {
-              return {
-                ...s,
-                status: "success",
-                fileName: file.name,
-                parsedCount: totalImported,
-                roleExtracted: s.defaultRole,
-                errorMsg: null,
-              };
-            }
-            return s;
-          })
-        );
-
-        setIsDirty(true);
-
-        if (unmatchedNames.length > 0) {
-          setUnmatchedNamesModal({
-            isOpen: true,
-            names: unmatchedNames,
-            totalImported
-          });
-        } else {
-          triggerNotification(
-            "success",
-            `Importação concluída com sucesso! ${totalImported} plantões de serviço foram atribuídos aos militares.`
-          );
-        }
-
-      } catch (err: any) {
-        console.error("Erro ao analisar arquivo CSV/TXT:", err);
-        setSlots((prev) =>
-          prev.map((s) => (s.id === slotId ? { ...s, status: "error", errorMsg: err.message || "Erro desconhecido ao processar arquivo." } : s))
-        );
-        triggerNotification("error", `Erro ao importar arquivo: ${err.message}`);
-      }
-    };
-
-    reader.onerror = () => {
-      setSlots((prev) =>
-        prev.map((s) => (s.id === slotId ? { ...s, status: "error", errorMsg: "Falha de leitura do arquivo local." } : s))
-      );
-    };
-
-    reader.readAsText(file, "UTF-8");
-  };
-
   // Upload and parse unified CSV/TXT file for ALL scales
   const handleUnifiedCsvUpload = async (file: File) => {
     triggerNotification("info", "Iniciando processamento de escala única...");
@@ -1710,7 +1330,6 @@ export default function App() {
         }
 
         const scaleChanges: { [profId: string]: { [day: number]: string } } = {};
-        const dutiesCountBySigla: { [sigla: string]: number } = {};
         const unmatchedNames: string[] = [];
         let totalImported = 0;
         let skippedOtherMonthCount = 0;
@@ -1769,7 +1388,6 @@ export default function App() {
 
             scaleChanges[matchedProf.id][day] = finalSigla;
 
-            dutiesCountBySigla[finalSigla] = (dutiesCountBySigla[finalSigla] || 0) + 1;
             totalImported++;
           } else {
             if (!unmatchedNames.includes(cleanMilitaryName)) {
@@ -1799,25 +1417,6 @@ export default function App() {
           });
           return updated;
         });
-
-        // Update slots status
-        setSlots((prev) =>
-          prev.map((s) => {
-            const sSigla = getScaleSigla(s.defaultRole);
-            const count = dutiesCountBySigla[sSigla];
-            if (count && count > 0) {
-              return {
-                ...s,
-                status: "success",
-                fileName: file.name,
-                parsedCount: count,
-                roleExtracted: s.defaultRole,
-                errorMsg: null,
-              };
-            }
-            return s;
-          })
-        );
 
         setIsDirty(true);
 
@@ -1870,84 +1469,6 @@ export default function App() {
     triggerNotification("success", "Exemplo de CSV oficial baixado com sucesso!");
   };
 
-  // Contingency parser fallback helper (runs automatically if Gemini key is missing so user experience is not broken)
-  const handleContingencyParsing = (slotId: string) => {
-    const slot = slots.find((s) => s.id === slotId);
-    if (!slot) return;
-
-    setSlots((prev) =>
-      prev.map((s) =>
-        s.id === slotId
-          ? {
-              ...s,
-              fileName: `Extraido_Contingencia_${slot.defaultRole.replace(/\s+/g, "_")}.pdf`,
-              status: "uploading",
-              errorMsg: null,
-            }
-          : s
-      )
-    );
-
-    setTimeout(() => {
-      const simulatedScale = generateMockScale(slot.defaultRole, selectedMonth, selectedYear, professionals);
-      handleMergeParsedScale(simulatedScale, slot.defaultRole);
-
-      setSlots((prev) =>
-        prev.map((s) =>
-          s.id === slotId
-            ? {
-                ...s,
-                status: "success",
-                roleExtracted: slot.defaultRole,
-                parsedCount: simulatedScale.professionals.length,
-              }
-            : s
-        )
-      );
-
-      triggerNotification(
-        "success",
-        `PDF da escala "${slot.defaultRole}" processado via contingência com sucesso! ${simulatedScale.professionals.length} militares carregados.`
-      );
-    }, 600);
-  };
-
-  // Reset/Clear a single slot
-  const handleResetSlot = (slotId: string) => {
-    const slot = slots.find((s) => s.id === slotId);
-    if (!slot) return;
-
-    const scaleCode = slot.defaultRole.split(" - ")[0] || "MD";
-
-    // Clear duties of this code from all cells
-    setCellState((prev) => {
-      const updated = { ...prev };
-      Object.keys(updated).forEach((profId) => {
-        const profCells = { ...updated[profId] };
-        Object.keys(profCells).forEach((dayStr) => {
-          const day = parseInt(dayStr);
-          if (profCells[day] === scaleCode) {
-            delete profCells[day];
-          }
-        });
-        updated[profId] = profCells;
-      });
-      return updated;
-    });
-
-    // Reset slot status
-    setSlots((prev) =>
-      prev.map((s) =>
-        s.id === slotId
-          ? { ...s, fileName: null, status: "idle", roleExtracted: null, errorMsg: null, parsedCount: null, fileToProcess: undefined }
-          : s
-      )
-    );
-
-    setIsDirty(true);
-    triggerNotification("info", `Escala de "${slot.defaultRole}" foi redefinida.`);
-  };
-
   // Clear data for selected scales
   const handleDeleteScalesConfirm = (scales: string[]) => {
     if (scales.length === 0) {
@@ -1994,25 +1515,6 @@ export default function App() {
 
       return newState;
     });
-
-    // Reset slots status of those scales
-    setSlots(prev => prev.map(slot => {
-      const slotSigla = getScaleSigla(slot.defaultRole);
-      if (scales.includes(slotSigla)) {
-        return {
-          ...slot,
-          status: "idle" as const,
-          fileName: null,
-          progress: 0,
-          textData: null,
-          error: null,
-          parsedCount: null,
-          roleExtracted: null,
-          fileToProcess: undefined
-        };
-      }
-      return slot;
-    }));
 
     setIsDirty(true);
     triggerNotification("success", "Escalas selecionadas foram apagadas com sucesso.");
@@ -2545,35 +2047,6 @@ export default function App() {
     triggerNotification("success", "Assinatura removida.");
   };
 
-  // Export to CSV
-  const handleExportCSV = () => {
-    if (professionals.length === 0) {
-      triggerNotification("warning", "Não há dados na tabela consolidada para exportar.");
-      return;
-    }
-
-    const monthLabel = MONTHS.find((m) => m.value === selectedMonth)?.label || "";
-    const csvContent = exportToCSV(
-      professionals,
-      cellState,
-      daysInMonth,
-      monthLabel,
-      selectedYear.toString(),
-      locationName
-    );
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Escala_Consolidada_${locationName.replace(/\s+/g, "_")}_${monthLabel}_${selectedYear}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    triggerNotification("success", "Exportação para Excel (CSV) concluída com sucesso!");
-  };
-
   // Trigger browser print
   const handlePrint = () => {
     const isInIframe = typeof window !== "undefined" && window.self !== window.top;
@@ -2962,37 +2435,6 @@ export default function App() {
           >
             <X className="w-4 h-4" />
           </button>
-        </div>
-      )}
-
-      {/* Custom Confirmation Modal */}
-      {confirmDialog && confirmDialog.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs no-print">
-          <div className="bg-white rounded-lg shadow-xl border border-slate-200 max-w-md w-full mx-4 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-6">
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                {confirmDialog.title}
-              </h3>
-              <p className="text-xs text-slate-600 mb-6 font-semibold leading-relaxed mt-3">
-                {confirmDialog.message}
-              </p>
-              <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={() => setConfirmDialog(null)}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest rounded transition-colors cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={confirmDialog.onConfirm}
-                  className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-black uppercase tracking-widest rounded shadow-xs transition-all hover:shadow-md cursor-pointer"
-                >
-                  Confirmar
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 

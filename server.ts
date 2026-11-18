@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
 import { createClient } from "@supabase/supabase-js";
 
 dotenv.config();
@@ -72,29 +71,9 @@ try {
   console.error("Falha ao inicializar o cliente Supabase no servidor:", err);
 }
 
-// Increase JSON payload limits for base64 file uploads
-app.use(express.json({ limit: "20mb" }));
-app.use(express.urlencoded({ limit: "20mb", extended: true }));
-
-// Lazy initializer for GoogleGenAI
-let aiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI {
-  if (!aiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY_MISSING");
-    }
-    aiClient = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
-      },
-    });
-  }
-  return aiClient;
-}
+// JSON payload limit (scale state for a full month can be large)
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ limit: "5mb", extended: true }));
 
 // Health check
 app.get("/api/health", (req, res) => {
@@ -303,150 +282,6 @@ app.post("/api/scales", async (req, res) => {
   } catch (err: any) {
     console.error("Supabase error saving scales:", err);
     res.status(500).json({ error: "DB_ERROR", message: err.message });
-  }
-});
-
-// Endpoint to parse schedule from PDF
-app.post("/api/parse-pdf", async (req, res) => {
-  const { fileName, fileBase64, roleName, monthYear } = req.body;
-
-  if (!fileBase64) {
-    res.status(400).json({ error: "O conteúdo do arquivo PDF (base64) é obrigatório." });
-    return;
-  }
-
-  try {
-    const ai = getGeminiClient();
-
-    // Prepare the PDF inline part for Gemini
-    const pdfPart = {
-      inlineData: {
-        mimeType: "application/pdf",
-        data: fileBase64,
-      },
-    };
-
-    const promptText = `Você é um assistente especialista em processamento de dados corporativos e hospitalares.
-Sua tarefa é extrair com extrema precisão a escala de serviço deste documento PDF.
-${roleName ? `A função/cargo principal esperada para este PDF é: "${roleName}".` : ""}
-${monthYear ? `O mês/ano de referência esperado é: "${monthYear}".` : ""}
-
-Analise o PDF fornecido e retorne um objeto JSON contendo os profissionais e os respectivos turnos de trabalho para cada dia do mês.
-
-Regras de Extração:
-1. Identifique o nome completo de cada profissional listado na escala.
-2. Identifique quais dias do mês (números de 1 a 31) cada profissional está escalado para trabalhar.
-3. Para cada dia escalado, extraia a sigla, nome do turno ou horário correspondente (ex: "D", "N", "T", "M", "Plantão", "12h", "24h" ou "07:00-19:00"). Mantenha a sigla/texto do turno curta e concisa (idealmente até 10 caracteres).
-4. Ignore os dias de folga (não inclua no array de dias, ou se incluir, certifique-se de que representam apenas trabalho efetivo).
-5. Extraia ou infira a função principal (role) do PDF (ex: "Médico", "Enfermeiro", "Recepcionista", "Técnico").
-6. Extraia ou infira o mês e ano se estiverem visíveis no documento.
-
-Importante: O retorno deve seguir estritamente o formato JSON especificado.`;
-
-    let response;
-    let attempts = 0;
-    const maxAttempts = 3;
-    let lastError: any = null;
-
-    while (attempts < maxAttempts) {
-      try {
-        response = await ai.models.generateContent({
-          model: "gemini-3.8-flash",
-          contents: [
-            pdfPart,
-            { text: promptText }
-          ],
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                role: {
-                  type: Type.STRING,
-                  description: "Função ou setor da escala extraída (ex: Médico, Enfermeiro, Recepcionista, UTI)",
-                },
-                month: {
-                  type: Type.STRING,
-                  description: "Mês da escala extraída (ex: Julho)",
-                },
-                year: {
-                  type: Type.INTEGER,
-                  description: "Ano da escala extraído (ex: 2026)",
-                },
-                professionals: {
-                  type: Type.ARRAY,
-                  description: "Lista de profissionais identificados na escala",
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      name: {
-                        type: Type.STRING,
-                        description: "Nome do profissional",
-                      },
-                      days: {
-                        type: Type.ARRAY,
-                        description: "Lista de dias trabalhados e seus respectivos turnos",
-                        items: {
-                          type: Type.OBJECT,
-                          properties: {
-                            day: {
-                              type: Type.INTEGER,
-                              description: "Dia do mês (1 a 31)",
-                            },
-                            shift: {
-                              type: Type.STRING,
-                              description: "Sigla ou nome do turno correspondente (ex: D, N, M, T, 12h, 24h)",
-                            },
-                          },
-                          required: ["day", "shift"],
-                        },
-                      },
-                    },
-                    required: ["name", "days"],
-                  },
-                },
-              },
-              required: ["role", "professionals"],
-            },
-          },
-        });
-        break; // Success! Break out of the retry loop.
-      } catch (err: any) {
-        attempts++;
-        lastError = err;
-        console.warn(`[Gemini PDF Extração] Tentativa ${attempts}/${maxAttempts} falhou:`, err.message || err);
-        if (attempts < maxAttempts) {
-          // Wait 1.5s before retrying
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-        }
-      }
-    }
-
-    if (!response) {
-      throw lastError || new Error("Falha ao se conectar com o modelo Gemini após várias tentativas devido a alta demanda.");
-    }
-
-    const textOutput = response.text;
-    if (!textOutput) {
-      throw new Error("Nenhuma resposta de texto gerada pelo modelo.");
-    }
-
-    const parsedData = JSON.parse(textOutput.trim());
-    res.json(parsedData);
-  } catch (error: any) {
-    console.error("Erro ao processar PDF com Gemini:", error);
-    if (error.message === "GEMINI_API_KEY_MISSING") {
-      res.status(401).json({
-        error: "GEMINI_API_KEY_MISSING",
-        message: "A chave GEMINI_API_KEY não foi configurada. No painel lateral ou de configurações, configure sua API Key para habilitar a inteligência de IA real. Por enquanto, você pode usar a simulação de extração de alto fidelidade!",
-      });
-    } else {
-      res.status(500).json({
-        error: "EXTRACTION_FAILED",
-        message: "Ocorreu um erro devido a alta demanda ou instabilidade na API do Gemini. Por favor, tente novamente em alguns instantes ou use a opção 'Forçar Contingência' no cartão do militar para carregar os dados simulados.",
-        details: error.message,
-      });
-    }
   }
 });
 

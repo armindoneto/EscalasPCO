@@ -1,8 +1,6 @@
 {
   "name": "Consolidador de Escalas de Serviço",
-  "description": "Aplicativo desktop para upload, extração inteligente e consolidação de até 9 escalas de serviço em formato PDF usando a Inteligência Artificial Gemini.",
+  "description": "Aplicativo para importar o CSV de escalas exportado do E-RISAER e transformá-lo no documento padronizado de escala de serviço (visualização, impressão e planilha .xlsx).",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": []
 }
